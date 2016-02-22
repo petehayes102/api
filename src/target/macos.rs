@@ -101,6 +101,12 @@ impl PackageTarget for Target {
 impl ServiceTarget for Target {
     #[allow(unused_variables)]
     fn service_action(host: &mut Host, name: &str, action: &str) -> Result<CommandResult> {
+        let action = match action.as_ref() {
+            "start" => "load",
+            "stop" => "unload",
+            _ => action,
+        };
+
         default::service_action(name, action)
     }
 }

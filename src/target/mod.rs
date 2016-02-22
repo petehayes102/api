@@ -9,6 +9,8 @@
 #[cfg(feature = "local-run")]
 pub mod bin_resolver;
 
+pub mod data;
+
 #[cfg(feature = "local-run")]
 #[allow(dead_code)]
 pub mod default_base;
