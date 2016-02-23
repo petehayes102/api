@@ -50,6 +50,8 @@ pub use host::Host;
 pub use package::{Package, PackageResult};
 pub use package::providers::{Provider, ProviderFactory, Providers};
 pub use service::Service;
+pub use target::data::Item as DataItem;
+pub use target::Targets;
 pub use telemetry::{Cpu, FsMount, Netif, NetifStatus, NetifIPv4, NetifIPv6, Os, Telemetry};
 
 use std::result;

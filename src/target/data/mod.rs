@@ -7,47 +7,69 @@
 // modified, or distributed except according to those terms.
 
 use Host;
+use super::Targets;
 
-enum Option<T> {
-    Centos(T),
-    Debian(T),
-    Default(T),
-    Fedora(T),
-    Freebsd(T),
-    Linux(T),
-    Macos(T),
-    Redhat(T),
-    Ubuntu(T),
-    Unix(T),
-}
-
-struct Item<T> {
-    options: [Option<T>]
+pub struct Item<T> {
+    centos: Option<T>,
+    debian: Option<T>,
+    default: Option<T>,
+    fedora: Option<T>,
+    freebsd: Option<T>,
+    linux: Option<T>,
+    macos: Option<T>,
+    redhat: Option<T>,
+    ubuntu: Option<T>,
+    unix: Option<T>,
 }
 
 impl <T>Item<T> {
-    fn new(options: [Option<T>]) -> Item<T> {
+    pub fn new() -> Item<T> {
         Item {
-            options: options,
+            centos: None,
+            debian: None,
+            default: None,
+            fedora: None,
+            freebsd: None,
+            linux: None,
+            macos: None,
+            redhat: None,
+            ubuntu: None,
+            unix: None,
         }
     }
 
-    fn resolve(&self, host: &mut Host) -> T {
-        let os = "xxx";
-
-        for opt in self.options {
-            match opt {
-                Option::Centos(data) if os == "centos" => return data,
-                Option::Debian(data) if os == "debian" => return data,
-                Option::Fedora(data) if os == "fedora" => return data,
-                Option::Freebsd(data) if os == "freebsd" => return data,
-                Option::Linux(data) if os == "linux" => return data,
-                Option::Macos(data) if os == "macos" => return data,
-                Option::Redhat(data) if os == "redhat" => return data,
-                Option::Ubuntu(data) if os == "ubuntu" => return data,
-                Option::Unix(data) if os == "unix" => return data,
-                Option::Default(data) => return data,
+    pub fn add(&mut self, item: T, target: Option<Targets>) {
+        if let Some(t) = target {
+            match t {
+                Targets::Centos => self.centos = Some(item),
+                Targets::Debian => self.debian = Some(item),
+                Targets::Fedora => self.fedora = Some(item),
+                Targets::Freebsd => self.freebsd = Some(item),
+                Targets::Linux => self.linux = Some(item),
+                Targets::Macos => self.macos = Some(item),
+                Targets::Redhat => self.redhat = Some(item),
+                Targets::Ubuntu => self.ubuntu = Some(item),
+                Targets::Unix => self.unix = Some(item),
             }
+        } else {
+            self.default = Some(item);
+        }
+    }
+
+    pub fn resolve(&self, host: &mut Host) -> Option<&T> {
+        let os = Targets::Unix;
+
+        match os {
+            Targets::Centos if self.centos.is_some() => self.centos.as_ref(),
+            Targets::Debian if self.debian.is_some() => self.debian.as_ref(),
+            Targets::Fedora if self.fedora.is_some() => self.fedora.as_ref(),
+            Targets::Freebsd if self.freebsd.is_some() => self.freebsd.as_ref(),
+            Targets::Linux if self.linux.is_some() => self.linux.as_ref(),
+            Targets::Macos if self.macos.is_some() => self.macos.as_ref(),
+            Targets::Redhat if self.redhat.is_some() => self.redhat.as_ref(),
+            Targets::Ubuntu if self.ubuntu.is_some() => self.ubuntu.as_ref(),
+            Targets::Unix if self.unix.is_some() => self.unix.as_ref(),
+            _ => self.default.as_ref(),
         }
     }
 }

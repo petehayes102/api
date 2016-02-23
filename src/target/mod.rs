@@ -52,3 +52,15 @@ pub mod redhat;
 pub mod ubuntu;
 
 pub struct Target;
+
+pub enum Targets {
+    Centos,
+    Debian,
+    Fedora,
+    Freebsd,
+    Linux,
+    Macos,
+    Redhat,
+    Ubuntu,
+    Unix,
+}
