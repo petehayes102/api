@@ -33,7 +33,18 @@ pub mod ffi;
 
 use Host;
 use Result;
+use std::sync::Mutex;
 use target::Target;
+
+lazy_static! {
+    static ref TELEMETRY: Mutex<TelemetryCache> = Mutex::new(TelemetryCache{
+        telemetry: None,
+    });
+}
+
+struct TelemetryCache {
+    telemetry: Option<Telemetry>,
+}
 
 #[derive(Debug, RustcDecodable, RustcEncodable)]
 pub struct Telemetry {
@@ -68,7 +79,13 @@ impl Telemetry {
     /// let telemetry = Telemetry::init(&mut host);
     /// ```
     pub fn init(host: &mut Host) -> Result<Telemetry> {
-        Target::telemetry_init(host)
+        let mut t = TELEMETRY.lock().unwrap();
+
+        if t.telemetry.is_none() {
+            t.telemetry = Some(try!(Target::telemetry_init(host)));
+        }
+
+        Ok(t.telemetry.unwrap())
     }
 }
 

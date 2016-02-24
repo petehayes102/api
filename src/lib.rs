@@ -41,18 +41,16 @@ pub mod host;
 pub mod package;
 pub mod service;
 mod target;
-pub mod telemetry;
 
 pub use command::{Command, CommandResult};
 pub use error::Error;
 pub use file::{File, FileOpts, FileOwner};
-pub use host::Host;
+pub use host::{Cpu, FsMount, Host, Netif, NetifStatus, NetifIPv4, NetifIPv6, Os};
 pub use package::{Package, PackageResult};
 pub use package::providers::{Provider, ProviderFactory, Providers};
 pub use service::Service;
 pub use target::data::Item as DataItem;
 pub use target::Targets;
-pub use telemetry::{Cpu, FsMount, Netif, NetifStatus, NetifIPv4, NetifIPv6, Os, Telemetry};
 
 use std::result;
 pub type Result<T> = result::Result<T, Error>;

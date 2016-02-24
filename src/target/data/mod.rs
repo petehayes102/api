@@ -6,7 +6,7 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
-use Host;
+use {Host, Result};
 use super::Targets;
 
 pub struct Item<T> {
@@ -56,10 +56,10 @@ impl <T>Item<T> {
         }
     }
 
-    pub fn resolve(&self, host: &mut Host) -> Option<&T> {
-        let os = Targets::Unix;
+    pub fn resolve(&self, host: &mut Host) -> Result<Option<&T>> {
+        let os = try!(host.get_telemetry_os());
 
-        match os {
+        let data = match os {
             Targets::Centos if self.centos.is_some() => self.centos.as_ref(),
             Targets::Debian if self.debian.is_some() => self.debian.as_ref(),
             Targets::Fedora if self.fedora.is_some() => self.fedora.as_ref(),
@@ -70,7 +70,9 @@ impl <T>Item<T> {
             Targets::Ubuntu if self.ubuntu.is_some() => self.ubuntu.as_ref(),
             Targets::Unix if self.unix.is_some() => self.unix.as_ref(),
             _ => self.default.as_ref(),
-        }
+        };
+
+        Ok(data)
     }
 }
 
