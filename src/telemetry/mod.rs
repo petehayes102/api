@@ -7,90 +7,92 @@
 // modified, or distributed except according to those terms.
 
 //! Data structures containing information about your managed host.
-//!
-//! The Telemetry struct stores metadata about a host, such as its
-//! network interfaces, disk mounts, CPU stats and hostname.
-//!
-//! # Examples
-//!
-//! Initialise a new Host:
-//!
-//! ```no_run
-//! # use inapi::Host;
-//! let mut host = Host::new();
-#![cfg_attr(feature = "remote-run", doc = "host.connect(\"127.0.0.1\", 7101, 7102, 7103).unwrap();")]
-//! ```
-//!
-//! Now run your command and get the result:
-//!
-//! ```no_run
-//! # use inapi::{Host, Telemetry};
-//! # let mut host = Host::new();
-//! let telemetry = Telemetry::init(&mut host);
-//! ```
 
 pub mod ffi;
 
-use Host;
 use Result;
-use std::sync::Mutex;
+use std::convert::From;
+use super::Host;
 use target::Target;
-
-lazy_static! {
-    static ref TELEMETRY: Mutex<TelemetryCache> = Mutex::new(TelemetryCache{
-        telemetry: None,
-    });
-}
-
-struct TelemetryCache {
-    telemetry: Option<Telemetry>,
-}
 
 #[derive(Debug, RustcDecodable, RustcEncodable)]
 pub struct Telemetry {
-    pub cpu: Cpu,
-    pub fs: Vec<FsMount>,
-    pub hostname: String,
-    pub memory: u64,
-    pub net: Vec<Netif>,
-    pub os: Os,
+    cpu: Option<Cpu>,
+    fs: Option<Vec<FsMount>>,
+    hostname: Option<String>,
+    memory: Option<u64>,
+    net: Option<Vec<Netif>>,
+    os: Option<Os>,
 }
 
 impl Telemetry {
-    #[doc(hidden)]
-    pub fn new(cpu: Cpu, fs: Vec<FsMount>, hostname: &str, memory: u64, net: Vec<Netif>, os: Os) -> Telemetry {
+    pub fn new() -> Telemetry {
         Telemetry {
-            cpu: cpu,
-            fs: fs,
-            hostname: hostname.to_string(),
-            memory: memory,
-            net: net,
-            os: os,
+            cpu: None,
+            fs: None,
+            hostname: None,
+            memory: None,
+            net: None,
+            os: None,
         }
     }
 
-    /// Initialise a new Telemetry struct for the given Host.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use inapi::{Host, Telemetry};
-    /// # let mut host = Host::new();
-    /// let telemetry = Telemetry::init(&mut host);
-    /// ```
-    pub fn init(host: &mut Host) -> Result<Telemetry> {
-        let mut t = TELEMETRY.lock().unwrap();
-
-        if t.telemetry.is_none() {
-            t.telemetry = Some(try!(Target::telemetry_init(host)));
+    pub fn get_cpu(&mut self, host: &mut Host) -> Result<&Cpu> {
+        if self.cpu.is_none() {
+            self.cpu = Some(try!(Target::telemetry_cpu(host)));
         }
 
-        Ok(t.telemetry.unwrap())
+        Ok(self.cpu.as_ref().unwrap())
+    }
+
+    pub fn get_fs(&mut self, host: &mut Host) -> Result<&Vec<FsMount>> {
+        if self.fs.is_none() {
+            self.fs = Some(try!(Target::telemetry_fs(host)));
+        }
+
+        Ok(self.fs.as_ref().unwrap())
+    }
+
+    pub fn get_hostname(&mut self, host: &mut Host) -> Result<&str> {
+        if self.hostname.is_none() {
+            self.hostname = Some(try!(Target::telemetry_hostname(host)));
+        }
+
+        Ok(self.hostname.as_ref().unwrap())
+    }
+
+    pub fn get_memory(&mut self, host: &mut Host) -> Result<u64> {
+        if self.memory.is_none() {
+            self.memory = Some(try!(Target::telemetry_memory(host)));
+        }
+
+        Ok(self.memory.unwrap())
+    }
+
+    pub fn get_net(&mut self, host: &mut Host) -> Result<&Vec<Netif>> {
+        if self.net.is_none() {
+            self.net = Some(try!(Target::telemetry_net(host)));
+        }
+
+        Ok(self.net.as_ref().unwrap())
+    }
+
+    pub fn get_os(&mut self, host: &mut Host) -> Result<&Os> {
+        if self.os.is_none() {
+            self.os = Some(try!(Target::telemetry_os(host)));
+        }
+
+        Ok(self.os.as_ref().unwrap())
     }
 }
 
 pub trait TelemetryTarget {
-    fn telemetry_init(host: &mut Host) -> Result<Telemetry>;
+    fn telemetry_cpu(host: &mut Host) -> Result<Cpu>;
+    fn telemetry_fs(host: &mut Host) -> Result<Vec<FsMount>>;
+    fn telemetry_hostname(host: &mut Host) -> Result<String>;
+    fn telemetry_memory(host: &mut Host) -> Result<u64>;
+    fn telemetry_net(host: &mut Host) -> Result<Vec<Netif>>;
+    fn telemetry_os(host: &mut Host) -> Result<Os>;
 }
 
 #[derive(Debug, RustcDecodable, RustcEncodable)]
@@ -211,21 +213,48 @@ impl NetifIPv6 {
     }
 }
 
+#[derive(Debug, PartialEq, RustcDecodable, RustcEncodable)]
+#[repr(C)]
+pub enum OsPlatform {
+    Centos,
+    Debian,
+    Fedora,
+    Freebsd,
+    Macos,
+    Redhat,
+    Ubuntu,
+}
+
+impl From<String> for OsPlatform {
+    fn from(platform: String) -> OsPlatform {
+        match platform.as_ref() {
+            "centos" => OsPlatform::Centos,
+            "debian" => OsPlatform::Debian,
+            "fedora" => OsPlatform::Fedora,
+            "freebsd" => OsPlatform::Freebsd,
+            "macos" => OsPlatform::Macos,
+            "redhat" => OsPlatform::Redhat,
+            "ubuntu" => OsPlatform::Ubuntu,
+            _ => unimplemented!(),
+        }
+    }
+}
+
 #[derive(Debug, RustcDecodable, RustcEncodable)]
 pub struct Os {
     pub arch: String,
     pub family: String,
-    pub platform: String,
+    pub platform: OsPlatform,
     pub version: String,
 }
 
 impl Os {
     #[doc(hidden)]
-    pub fn new(arch: &str, family: &str, platform: &str, version: &str) -> Os {
+    pub fn new(arch: &str, family: &str, platform: OsPlatform, version: &str) -> Os {
         Os {
             arch: arch.to_string(),
             family: family.to_string(),
-            platform: platform.to_string(),
+            platform: platform,
             version: version.to_string(),
         }
     }
@@ -242,79 +271,215 @@ mod tests {
     #[cfg(feature = "remote-run")]
     use zmq;
 
-    #[cfg(feature = "local-run")]
-    #[test]
-    fn test_telemetry_init() {
-        let mut host = Host::new();
-        assert!(Telemetry::init(&mut host).is_ok());
-    }
+    // XXX Local tests require mocking
 
     #[cfg(feature = "remote-run")]
     #[test]
-    fn test_telemetry_init() {
+    fn test_get_cpu() {
         let mut ctx = zmq::Context::new();
         let mut agent_sock = ctx.socket(zmq::REP).unwrap();
-        agent_sock.bind("inproc://test_init").unwrap();
+        agent_sock.bind("inproc://test").unwrap();
 
         let agent_mock = thread::spawn(move || {
-            assert_eq!("telemetry", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!("telemetry::cpu", agent_sock.recv_string(0).unwrap().unwrap());
             assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
 
-            let telemetry = Telemetry {
-                cpu: Cpu {
-                    vendor: "moo".to_string(),
-                    brand_string: "Moo Cow Super Fun Happy CPU".to_string(),
-                    cores: 100,
-                },
-                fs: vec![FsMount {
-                    filesystem: "/dev/disk0".to_string(),
-                    mountpoint: "/".to_string(),
-                    size: 10000,
-                    used: 5000,
-                    available: 5000,
-                    capacity: 0.5,
-//                    inodes_used: 20,
-//                    inodes_available: 0,
-//                    inodes_capacity: 1.0,
-                }],
-                hostname: "localhost".to_string(),
-                memory: 2048,
-                net: vec![Netif {
-                    interface: "em0".to_string(),
-                    mac: Some("01:23:45:67:89:ab".to_string()),
-                    inet: Some(NetifIPv4 {
-                        address: "127.0.0.1".to_string(),
-                        netmask: "255.255.255.255".to_string(),
-                    }),
-                    inet6: Some(NetifIPv6 {
-                        address: "::1".to_string(),
-                        prefixlen: 8,
-                        scopeid: Some("0x4".to_string()),
-                    }),
-                    status: Some(NetifStatus::Active),
-                }],
-                os: Os {
-                    arch: "doctor string".to_string(),
-                    family: "moo".to_string(),
-                    platform: "cow".to_string(),
-                    version: "1.0".to_string(),
-                },
+            let cpu = Cpu {
+                vendor: "moo".to_string(),
+                brand_string: "Moo Cow Super Fun Happy CPU".to_string(),
+                cores: 100,
             };
 
             agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
-            agent_sock.send_str(&json::encode(&telemetry).unwrap(), 0).unwrap();
+            agent_sock.send_str(&json::encode(&cpu).unwrap(), 0).unwrap();
         });
 
         let mut sock = ctx.socket(zmq::REQ).unwrap();
         sock.set_linger(0).unwrap();
-        sock.connect("inproc://test_init").unwrap();
+        sock.connect("inproc://test").unwrap();
 
         let mut host = Host::test_new(None, Some(sock), None, None);
 
-        let telemetry = Telemetry::init(&mut host).unwrap();
+        let mut telemetry = Telemetry::new();
+        let cpu = telemetry.get_cpu(&mut host).unwrap();
 
-        assert_eq!(telemetry.memory, 2048);
-        assert_eq!(telemetry.os.arch, "doctor string".to_string());
+        assert_eq!(&cpu.vendor, "moo");
+        assert_eq!(cpu.cores, 100);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_get_fs() {
+        let mut ctx = zmq::Context::new();
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::fs", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let fs = vec![FsMount {
+                filesystem: "/dev/disk0".to_string(),
+                mountpoint: "/".to_string(),
+                size: 10000,
+                used: 5000,
+                available: 5000,
+                capacity: 0.5,
+                // inodes_used: 20,
+                // inodes_available: 0,
+                // inodes_capacity: 1.0,
+            }];
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&fs).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.set_linger(0).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Host::test_new(None, Some(sock), None, None);
+
+        let mut telemetry = Telemetry::new();
+        let fs = telemetry.get_fs(&mut host).unwrap();
+
+        assert_eq!(&fs.first().unwrap().mountpoint, "/");
+        assert_eq!(fs.first().unwrap().capacity, 0.5);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_get_hostname() {
+        let mut ctx = zmq::Context::new();
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::hostname", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str("example.com", 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.set_linger(0).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Host::test_new(None, Some(sock), None, None);
+
+        let mut telemetry = Telemetry::new();
+        assert_eq!(telemetry.get_hostname(&mut host).unwrap(), "example.com");
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_get_memory() {
+        let mut ctx = zmq::Context::new();
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::memory", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str("10240", 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.set_linger(0).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Host::test_new(None, Some(sock), None, None);
+
+        let mut telemetry = Telemetry::new();
+        assert_eq!(telemetry.get_memory(&mut host).unwrap(), 10240);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_get_net() {
+        let mut ctx = zmq::Context::new();
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::net", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let net = vec![Netif {
+                interface: "em0".to_string(),
+                mac: Some("01:23:45:67:89:ab".to_string()),
+                inet: Some(NetifIPv4 {
+                    address: "127.0.0.1".to_string(),
+                    netmask: "255.255.255.255".to_string(),
+                }),
+                inet6: Some(NetifIPv6 {
+                    address: "::1".to_string(),
+                    prefixlen: 8,
+                    scopeid: Some("0x4".to_string()),
+                }),
+                status: Some(NetifStatus::Active),
+            }];
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&net).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.set_linger(0).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Host::test_new(None, Some(sock), None, None);
+
+        let mut telemetry = Telemetry::new();
+        let net = telemetry.get_net(&mut host).unwrap();
+
+        assert_eq!(&net.first().unwrap().interface, "em0");
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_get_os() {
+        let mut ctx = zmq::Context::new();
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::os", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let os = Os {
+                arch: "doctor string".to_string(),
+                family: "moo".to_string(),
+                platform: OsPlatform::Centos,
+                version: "1.0".to_string(),
+            };
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&os).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.set_linger(0).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Host::test_new(None, Some(sock), None, None);
+
+        let mut telemetry = Telemetry::new();
+        let os = telemetry.get_os(&mut host).unwrap();
+
+        assert_eq!(os.platform, OsPlatform::Centos);
+        assert_eq!(&os.version, "1.0");
 
         agent_mock.join().unwrap();
     }

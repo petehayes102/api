@@ -29,7 +29,6 @@
 //! ```
 
 pub mod ffi;
-mod telemetry;
 
 #[cfg(feature = "remote-run")]
 use error::{Error, MissingFrame};
@@ -37,14 +36,12 @@ use error::{Error, MissingFrame};
 use file::FileOpts;
 #[cfg(feature = "remote-run")]
 use Result;
-pub use self::telemetry::{Cpu, FsMount, Netif, NetifStatus, NetifIPv4, NetifIPv6, Os};
 #[cfg(feature = "remote-run")]
 use std::sync::Mutex;
 #[cfg(feature = "remote-run")]
 use std::thread::sleep;
 #[cfg(feature = "remote-run")]
 use std::time::Duration;
-use target::Target;
 #[cfg(feature = "remote-run")]
 use zmq;
 
@@ -66,14 +63,6 @@ pub struct Host {
     upload_sock: Option<zmq::Socket>,
     /// File download port
     download_port: Option<u32>,
-    /// Data about the host's CPU
-    telemetry_cpu: Option<Cpu>,
-    /// Data about host's mounted file systems
-    telemetry_fs: Option<Vec<FsMount>>,
-    /// Data about host's network interfaces
-    telemetry_net: Option<Vec<Netif>>,
-    /// Data about the host's OS
-    telemetry_os: Option<Os>,
 }
 
 impl Host {
@@ -89,43 +78,7 @@ impl Host {
             api_sock: None,
             upload_sock: None,
             download_port: None,
-            telemetry_cpu: None,
-            telemetry_fs: None,
-            telemetry_net: None,
-            telemetry_os: None,
         }
-    }
-
-    pub fn get_telemetry_cpu(&mut self) -> Result<Cpu> {
-        if self.telemetry_cpu.is_none() {
-            self.telemetry_cpu = Some(try!(Target::telemetry_cpu(&mut self)));
-        }
-
-        Ok(self.telemetry_cpu.unwrap())
-    }
-
-    pub fn get_telemetry_fs(&mut self) -> Result<Vec<FsMount>> {
-        if self.telemetry_fs.is_none() {
-            self.telemetry_fs = Some(try!(Target::telemetry_fs(&mut self)));
-        }
-
-        Ok(self.telemetry_fs.unwrap())
-    }
-
-    pub fn get_telemetry_net(&mut self) -> Result<Vec<Netif>> {
-        if self.telemetry_net.is_none() {
-            self.telemetry_net = Some(try!(Target::telemetry_net(&mut self)));
-        }
-
-        Ok(self.telemetry_net.unwrap())
-    }
-
-    pub fn get_telemetry_os(&mut self) -> Result<Os> {
-        if self.telemetry_os.is_none() {
-            self.telemetry_os = Some(try!(Target::telemetry_os(&mut self)));
-        }
-
-        Ok(self.telemetry_os.unwrap())
     }
 
     #[cfg(feature = "remote-run")]
@@ -136,10 +89,6 @@ impl Host {
             api_sock: api_sock,
             upload_sock: upload_sock,
             download_port: download_port,
-            telemetry_cpu: None,
-            telemetry_fs: None,
-            telemetry_net: None,
-            telemetry_os: None,
         };
 
         host
@@ -275,45 +224,12 @@ impl Host {
     }
 }
 
-pub trait HostTarget {
-    fn telemetry_cpu(host: &mut Host) -> Result<Cpu>;
-    fn telemetry_fs(host: &mut Host) -> Result<Vec<FsMount>>;
-    fn telemetry_net(host: &mut Host) -> Result<Vec<Netif>>;
-    fn telemetry_os(host: &mut Host) -> Result<Os>;
-}
-
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "remote-run")]
     use {Host, zmq};
     #[cfg(feature = "remote-run")]
     use file::FileOpts;
-
-    // XXX Local tests require mocking
-
-    #[cfg(feature = "remote-run")]
-    #[test]
-    fn get_telemetry_cpu() {
-        unimplemented!();
-    }
-
-    #[cfg(feature = "remote-run")]
-    #[test]
-    fn get_telemetry_fsmounts() {
-        unimplemented!();
-    }
-
-    #[cfg(feature = "remote-run")]
-    #[test]
-    fn get_telemetry_netifs() {
-        unimplemented!();
-    }
-
-    #[cfg(feature = "remote-run")]
-    #[test]
-    fn get_telemetry_os() {
-        unimplemented!();
-    }
 
     #[cfg(feature = "remote-run")]
     #[test]

@@ -6,9 +6,9 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
-//! FFI interface for Host
+//! FFI interface for Telemetry
 
-use host::Host;
+use Host;
 use host::ffi::Ffi__Host;
 use libc::{c_char, c_float, size_t, uint32_t, uint64_t};
 use std::{convert, mem, ptr};
@@ -17,64 +17,88 @@ use super::*;
 
 #[repr(C)]
 pub struct Ffi__Telemetry {
-    pub cpu: Ffi__Cpu,
-    pub fs: Ffi__Array<Ffi__FsMount>,
-    pub hostname: *mut c_char,
-    pub memory: uint64_t,
-    pub net: Ffi__Array<Ffi__Netif>,
-    pub os: Ffi__Os,
+    pub cpu: Option<Ffi__Cpu>,
+    pub fs: Option<Ffi__Array<Ffi__FsMount>>,
+    pub hostname: Option<*mut c_char>,
+    pub memory: Option<uint64_t>,
+    pub net: Option<Ffi__Array<Ffi__Netif>>,
+    pub os: Option<Ffi__Os>,
 }
 
 impl convert::From<Telemetry> for Ffi__Telemetry {
     fn from(telemetry: Telemetry) -> Ffi__Telemetry {
-        let mut fs = vec![];
-        for mount in telemetry.fs {
-            fs.push(Ffi__FsMount::from(mount));
-        }
-
-        let mut net = vec![];
-        for netif in telemetry.net {
-            let n = Ffi__Netif::from(netif);
-            net.push(n);
-        }
-
         Ffi__Telemetry {
-            cpu: Ffi__Cpu::from(telemetry.cpu),
-            fs: Ffi__Array::from(fs),
-            hostname: CString::new(telemetry.hostname).unwrap().into_raw(),
-            memory: telemetry.memory as uint64_t,
-            net: Ffi__Array::from(net),
-            os: Ffi__Os::from(telemetry.os),
+            cpu: if let Some(cpu) = telemetry.cpu {
+                Some(Ffi__Cpu::from(cpu))
+            } else {
+                None
+            },
+            fs: if let Some(mut fs) = telemetry.fs {
+                let ffi_fs: Vec<_> = fs.drain(..).map(|mount| Ffi__FsMount::from(mount)).collect();
+                Some(Ffi__Array::from(ffi_fs))
+            } else {
+                None
+            },
+            hostname: if let Some(hostname) = telemetry.hostname {
+                Some(CString::new(hostname).unwrap().into_raw())
+            } else {
+                None
+            },
+            memory: telemetry.memory,
+            net: if let Some(mut net) = telemetry.net {
+                let ffi_net: Vec<_> = net.drain(..).map(|netif| Ffi__Netif::from(netif)).collect();
+                Some(Ffi__Array::from(ffi_net))
+            } else {
+                None
+            },
+            os: if let Some(os) = telemetry.os {
+                Some(Ffi__Os::from(os))
+            } else {
+                None
+            }
         }
     }
 }
 
 impl convert::From<Ffi__Telemetry> for Telemetry {
     fn from(ffi_telemetry: Ffi__Telemetry) -> Telemetry {
-        let fs_vec = unsafe { Vec::from_raw_parts(ffi_telemetry.fs.ptr, ffi_telemetry.fs.length, ffi_telemetry.fs.capacity) };
-        let mut fs = vec![];
-        for mount in fs_vec {
-            fs.push(FsMount::from(mount));
-        }
-
-        let net_vec = unsafe { Vec::from_raw_parts(ffi_telemetry.net.ptr, ffi_telemetry.net.length, ffi_telemetry.net.capacity) };
-        let mut net = vec![];
-        for iface in net_vec {
-            net.push(Netif::from(iface));
-        }
-
         Telemetry {
-            cpu: Cpu::from(ffi_telemetry.cpu),
-            fs: fs,
-            hostname: unsafe { CString::from_raw(ffi_telemetry.hostname) }.to_str().unwrap().to_string(),
-            memory: ffi_telemetry.memory as u64,
-            net: net,
-            os: Os::from(ffi_telemetry.os),
+            cpu: if let Some(cpu) = ffi_telemetry.cpu {
+                Some(Cpu::from(cpu))
+            } else {
+                None
+            },
+            fs: if let Some(ffi_fs) = ffi_telemetry.fs {
+                let mut fs_vec = unsafe { Vec::from_raw_parts(ffi_fs.ptr, ffi_fs.length, ffi_fs.capacity) };
+                let fs: Vec<_> = fs_vec.drain(..).map(|mount| FsMount::from(mount)).collect();
+                Some(fs)
+            } else {
+                None
+            },
+            hostname: if let Some(hostname) = ffi_telemetry.hostname {
+                Some(unsafe { CString::from_raw(hostname) }.to_str().unwrap().to_string())
+            } else {
+                None
+            },
+            memory: ffi_telemetry.memory,
+            net: if let Some(ffi_net) = ffi_telemetry.net {
+                let mut net_vec = unsafe { Vec::from_raw_parts(ffi_net.ptr, ffi_net.length, ffi_net.capacity) };
+                let net: Vec<_> = net_vec.drain(..).map(|netif| Netif::from(netif)).collect();
+                Some(net)
+            } else {
+                None
+            },
+            os: if let Some(os) = ffi_telemetry.os {
+                Some(Os::from(os))
+            } else {
+                None
+            },
         }
     }
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Ffi__Cpu {
     pub vendor: *mut c_char,
     pub brand_string: *mut c_char,
@@ -299,7 +323,7 @@ impl convert::From<Ffi__NetifIPv6> for NetifIPv6 {
 pub struct Ffi__Os {
     pub arch: *mut c_char,
     pub family: *mut c_char,
-    pub platform: *mut c_char,
+    pub platform: OsPlatform,
     pub version: *mut c_char,
 }
 
@@ -308,7 +332,7 @@ impl convert::From<Os> for Ffi__Os {
         Ffi__Os {
             arch: CString::new(os.arch).unwrap().into_raw(),
             family: CString::new(os.family).unwrap().into_raw(),
-            platform: CString::new(os.platform).unwrap().into_raw(),
+            platform: os.platform,
             version: CString::new(os.version).unwrap().into_raw(),
         }
     }
@@ -319,7 +343,7 @@ impl convert::From<Ffi__Os> for Os {
         Os {
             arch: unsafe { CStr::from_ptr(os.arch) }.to_str().unwrap().to_string(),
             family: unsafe { CStr::from_ptr(os.family) }.to_str().unwrap().to_string(),
-            platform: unsafe { CStr::from_ptr(os.platform) }.to_str().unwrap().to_string(),
+            platform: os.platform,
             version: unsafe { CStr::from_ptr(os.version) }.to_str().unwrap().to_string(),
         }
     }
@@ -351,14 +375,118 @@ impl <T>convert::From<Vec<T>> for Ffi__Array<T> {
 }
 
 #[no_mangle]
-pub extern "C" fn telemetry_init(ffi_host_ptr: *mut Ffi__Host) -> Ffi__Telemetry {
+pub extern "C" fn telemetry_new() -> Ffi__Telemetry {
+    Ffi__Telemetry {
+        cpu: None,
+        fs: None,
+        hostname: None,
+        memory: None,
+        net: None,
+        os: None,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_cpu<'a>(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> Option<Ffi__Cpu> {
     let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
-    let telemetry = Ffi__Telemetry::from(Telemetry::init(&mut host).unwrap());
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    telemetry.get_cpu(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(ffi_telemetry_ptr, ffi_telemetry); }
 
     // Convert ZMQ socket to raw to avoid destructor closing sock
     Ffi__Host::from(host);
 
-    telemetry
+    unsafe { ptr::read(ffi_telemetry_ptr) }.cpu
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_fs(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> Option<Ffi__Array<Ffi__FsMount>> {
+    let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    telemetry.get_fs(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(&mut *ffi_telemetry_ptr, ffi_telemetry); }
+
+    // Convert ZMQ socket to raw to avoid destructor closing sock
+    Ffi__Host::from(host);
+
+    unsafe { ptr::read(ffi_telemetry_ptr) }.fs
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_hostname(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> *const c_char {
+    let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    telemetry.get_hostname(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);
+    let ffi_hostname = ffi_telemetry.hostname.unwrap();
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(&mut *ffi_telemetry_ptr, ffi_telemetry); }
+
+    // Convert ZMQ socket to raw to avoid destructor closing sock
+    Ffi__Host::from(host);
+
+    ffi_hostname
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_memory(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> uint64_t {
+    let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    let memory = telemetry.get_memory(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(&mut *ffi_telemetry_ptr, ffi_telemetry); }
+
+    // Convert ZMQ socket to raw to avoid destructor closing sock
+    Ffi__Host::from(host);
+
+    memory
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_net(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> Option<Ffi__Array<Ffi__Netif>> {
+    let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    telemetry.get_net(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(&mut *ffi_telemetry_ptr, ffi_telemetry); }
+
+    // Convert ZMQ socket to raw to avoid destructor closing sock
+    Ffi__Host::from(host);
+
+    unsafe { ptr::read(ffi_telemetry_ptr) }.net
+}
+
+#[no_mangle]
+pub extern "C" fn telemetry_os(ffi_telemetry_ptr: *mut Ffi__Telemetry, ffi_host_ptr: *mut Ffi__Host) -> Option<Ffi__Os> {
+    let mut host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    let mut telemetry = Telemetry::from(unsafe { ptr::read(ffi_telemetry_ptr) });
+
+    telemetry.get_os(&mut host).unwrap();
+    let ffi_telemetry = Ffi__Telemetry::from(telemetry);;
+
+    // Write mutated Telemetry state back to pointer
+    unsafe { ptr::write(&mut *ffi_telemetry_ptr, ffi_telemetry); }
+
+    // Convert ZMQ socket to raw to avoid destructor closing sock
+    Ffi__Host::from(host);
+
+    unsafe { ptr::read(ffi_telemetry_ptr) }.os
 }
 
 #[no_mangle]
@@ -370,11 +498,21 @@ pub extern "C" fn telemetry_free(ffi_telemetry_ptr: *mut Ffi__Telemetry) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "remote-run")]
+    use Host;
+    #[cfg(feature = "remote-run")]
+    use host::ffi::Ffi__Host;
     use libc::{c_float, size_t, uint32_t, uint64_t};
-    use std::ffi::CString;
+    #[cfg(feature = "remote-run")]
+    use rustc_serialize::json;
+    use std::ffi::{CStr, CString};
     use std::mem;
+    #[cfg(feature = "remote-run")]
+    use std::{str, thread};
     use super::*;
     use super::super::*;
+    #[cfg(feature = "remote-run")]
+    use zmq;
 
     #[test]
     fn test_convert_telemetry() {
@@ -387,18 +525,61 @@ mod tests {
     }
 
     #[test]
-    fn test_telemetry_free() {
-        telemetry_free(&mut create_ffi_telemetry() as *mut Ffi__Telemetry);
+    fn test_telemetry_new() {
+        let telemetry = telemetry_new();
+        assert!(telemetry.cpu.is_none());
     }
 
-    fn create_telemetry() -> Telemetry {
-        Telemetry {
-            cpu: Cpu {
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_cpu() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::cpu", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let cpu = Cpu {
                 vendor: "moo".to_string(),
                 brand_string: "Moo Cow Super Fun Happy CPU".to_string(),
                 cores: 100,
-            },
-            fs: vec![FsMount {
+            };
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&cpu).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let cpu = telemetry_cpu(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host);
+
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(cpu.unwrap().vendor).to_bytes()).unwrap() }, "moo");
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(telemetry.cpu.unwrap().vendor).to_bytes()).unwrap() }, "moo");
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_fs() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::fs", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let fs = vec![FsMount {
                 filesystem: "/dev/disk0".to_string(),
                 mountpoint: "/".to_string(),
                 size: 10000,
@@ -408,10 +589,104 @@ mod tests {
                 // inodes_used: 20,
                 // inodes_available: 0,
                 // inodes_capacity: 1.0,
-            }],
-            hostname: "localhost".to_string(),
-            memory: 2048,
-            net: vec![Netif {
+            }];
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&fs).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let ffi_fs = telemetry_fs(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host).unwrap();
+
+        let mut fs_vec = unsafe { Vec::from_raw_parts(ffi_fs.ptr, ffi_fs.length, ffi_fs.capacity) };
+        let fs: Vec<_> = fs_vec.drain(..).map(|mount| FsMount::from(mount)).collect();
+
+        assert_eq!(fs.first().unwrap().filesystem, "/dev/disk0");
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_hostname() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::hostname", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str("example.com", 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let hostname = telemetry_hostname(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host);
+
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(hostname).to_bytes()).unwrap() }, "example.com");
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(telemetry.hostname.unwrap()).to_bytes()).unwrap() }, "example.com");
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_memory() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::memory", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str("10240", 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let memory = telemetry_memory(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host);
+
+        assert_eq!(memory, 10240);
+        assert_eq!(telemetry.memory.unwrap(), 10240);
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_net() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::net", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let net = vec![Netif {
                 interface: "em0".to_string(),
                 mac: Some("01:23:45:67:89:ab".to_string()),
                 inet: Some(NetifIPv4 {
@@ -424,13 +699,107 @@ mod tests {
                     scopeid: Some("0x4".to_string()),
                 }),
                 status: Some(NetifStatus::Active),
-            }],
-            os: Os {
+            }];
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&net).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let ffi_net = telemetry_net(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host).unwrap();
+
+        let mut net_vec = unsafe { Vec::from_raw_parts(ffi_net.ptr, ffi_net.length, ffi_net.capacity) };
+        let net: Vec<_> = net_vec.drain(..).map(|netif| Netif::from(netif)).collect();
+
+        assert_eq!(net.first().unwrap().interface, "em0");
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    #[cfg(feature = "remote-run")]
+    #[test]
+    fn test_telemetry_os() {
+        let mut ctx = zmq::Context::new();
+
+        let mut agent_sock = ctx.socket(zmq::REP).unwrap();
+        agent_sock.bind("inproc://test").unwrap();
+
+        let agent_mock = thread::spawn(move || {
+            assert_eq!("telemetry::os", agent_sock.recv_string(0).unwrap().unwrap());
+            assert_eq!(agent_sock.get_rcvmore().unwrap(), false);
+
+            let os = Os {
                 arch: "doctor string".to_string(),
                 family: "moo".to_string(),
-                platform: "cow".to_string(),
+                platform: OsPlatform::Centos,
                 version: "1.0".to_string(),
-            },
+            };
+
+            agent_sock.send_str("Ok", zmq::SNDMORE).unwrap();
+            agent_sock.send_str(&json::encode(&os).unwrap(), 0).unwrap();
+        });
+
+        let mut sock = ctx.socket(zmq::REQ).unwrap();
+        sock.connect("inproc://test").unwrap();
+
+        let mut host = Ffi__Host::from(Host::test_new(None, Some(sock), None, None));
+        let mut telemetry = telemetry_new();
+        let os = telemetry_os(&mut telemetry as *mut Ffi__Telemetry, &mut host as *mut Ffi__Host);
+
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(os.unwrap().family).to_bytes()).unwrap() }, "moo");
+        assert_eq!(unsafe { str::from_utf8(CStr::from_ptr(telemetry.os.unwrap().family).to_bytes()).unwrap() }, "moo");
+
+        Host::from(host);
+
+        agent_mock.join().unwrap();
+    }
+
+    fn create_telemetry() -> Telemetry {
+        Telemetry {
+            cpu: Some(Cpu {
+                vendor: "moo".to_string(),
+                brand_string: "Moo Cow Super Fun Happy CPU".to_string(),
+                cores: 100,
+            }),
+            fs: Some(vec![FsMount {
+                filesystem: "/dev/disk0".to_string(),
+                mountpoint: "/".to_string(),
+                size: 10000,
+                used: 5000,
+                available: 5000,
+                capacity: 0.5,
+                // inodes_used: 20,
+                // inodes_available: 0,
+                // inodes_capacity: 1.0,
+            }]),
+            hostname: Some("localhost".to_string()),
+            memory: Some(2048),
+            net: Some(vec![Netif {
+                interface: "em0".to_string(),
+                mac: Some("01:23:45:67:89:ab".to_string()),
+                inet: Some(NetifIPv4 {
+                    address: "127.0.0.1".to_string(),
+                    netmask: "255.255.255.255".to_string(),
+                }),
+                inet6: Some(NetifIPv6 {
+                    address: "::1".to_string(),
+                    prefixlen: 8,
+                    scopeid: Some("0x4".to_string()),
+                }),
+                status: Some(NetifStatus::Active),
+            }]),
+            os: Some(Os {
+                arch: "doctor string".to_string(),
+                family: "moo".to_string(),
+                platform: OsPlatform::Centos,
+                version: "1.0".to_string(),
+            }),
         }
     }
 
@@ -463,29 +832,29 @@ mod tests {
         }];
 
         let ffi_telemetry = Ffi__Telemetry {
-            cpu: Ffi__Cpu {
+            cpu: Some(Ffi__Cpu {
                 vendor: CString::new("moo").unwrap().into_raw(),
                 brand_string: CString::new("Moo Cow Super Fun Happy CPU").unwrap().into_raw(),
                 cores: 100 as uint32_t,
-            },
-            fs: Ffi__Array {
+            }),
+            fs: Some(Ffi__Array {
                 ptr: fs.as_mut_ptr(),
                 length: fs.len() as size_t,
                 capacity: fs.capacity() as size_t,
-            },
-            hostname: CString::new("localhost").unwrap().into_raw(),
-            memory: 2048 as uint64_t,
-            net: Ffi__Array {
+            }),
+            hostname: Some(CString::new("localhost").unwrap().into_raw()),
+            memory: Some(1024),
+            net: Some(Ffi__Array {
                 ptr: net.as_mut_ptr(),
                 length: net.len() as size_t,
                 capacity: net.capacity() as size_t,
-            },
-            os: Ffi__Os {
+            }),
+            os: Some(Ffi__Os {
                 arch: CString::new("doctor string").unwrap().into_raw(),
                 family: CString::new("moo").unwrap().into_raw(),
-                platform: CString::new("cow").unwrap().into_raw(),
+                platform: OsPlatform::Centos,
                 version: CString::new("1.0").unwrap().into_raw(),
-            },
+            }),
         };
 
         // Note: This causes a memory leak but unless we forget them,

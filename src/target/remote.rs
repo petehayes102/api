@@ -8,17 +8,17 @@
 
 use {
     CommandResult,
-    Cpu, FsMount, Host, Netif, NetifStatus, NetifIPv4, NetifIPv6, Os,
+    Cpu, FsMount, Host, Netif, Os,
     Providers,
     Result,
 };
 use command::CommandTarget;
 use file::{FileTarget, FileOwner};
-use host::HostTarget;
 use package::PackageTarget;
 use rustc_serialize::json;
 use service::ServiceTarget;
 use super::Target;
+use telemetry::TelemetryTarget;
 use zmq;
 
 //
@@ -128,44 +128,6 @@ impl FileTarget for Target {
 }
 
 //
-// Host
-//
-
-impl HostTarget for Target {
-    fn telemetry_cpu(host: &mut Host) -> Result<Cpu> {
-        try!(host.send("telemetry::cpu", 0));
-        try!(host.recv_header());
-
-        let cpu = try!(host.expect_recv("cpu", 1));
-        Ok(try!(json::decode(&cpu)))
-    }
-
-    fn telemetry_fs(host: &mut Host) -> Result<Vec<FsMount>> {
-        try!(host.send("telemetry::fs", 0));
-        try!(host.recv_header());
-
-        let fs = try!(host.expect_recv("fs", 1));
-        Ok(try!(json::decode(&fs)))
-    }
-
-    fn telemetry_net(host: &mut Host) -> Result<Vec<Netif>> {
-        try!(host.send("telemetry::net", 0));
-        try!(host.recv_header());
-
-        let cpu = try!(host.expect_recv("net", 1));
-        Ok(try!(json::decode(&cpu)))
-    }
-
-    fn telemetry_os(host: &mut Host) -> Result<Os> {
-        try!(host.send("telemetry::os", 0));
-        try!(host.recv_header());
-
-        let cpu = try!(host.expect_recv("os", 1));
-        Ok(try!(json::decode(&cpu)))
-    }
-}
-
-//
 // Package
 //
 
@@ -200,5 +162,57 @@ impl ServiceTarget for Target {
             stdout: stdout,
             stderr: stderr,
         })
+    }
+}
+
+//
+// Telemetry
+//
+
+impl TelemetryTarget for Target {
+    fn telemetry_cpu(host: &mut Host) -> Result<Cpu> {
+        try!(host.send("telemetry::cpu", 0));
+        try!(host.recv_header());
+
+        let cpu = try!(host.expect_recv("cpu", 1));
+        Ok(try!(json::decode(&cpu)))
+    }
+
+    fn telemetry_fs(host: &mut Host) -> Result<Vec<FsMount>> {
+        try!(host.send("telemetry::fs", 0));
+        try!(host.recv_header());
+
+        let fs = try!(host.expect_recv("fs", 1));
+        Ok(try!(json::decode(&fs)))
+    }
+
+    fn telemetry_hostname(host: &mut Host) -> Result<String> {
+        try!(host.send("telemetry::hostname", 0));
+        try!(host.recv_header());
+
+        host.expect_recv("hostname", 1)
+    }
+
+    fn telemetry_memory(host: &mut Host) -> Result<u64> {
+        try!(host.send("telemetry::memory", 0));
+        try!(host.recv_header());
+
+        Ok(try!(host.expect_recv("memory", 1)).parse::<u64>().unwrap())
+    }
+
+    fn telemetry_net(host: &mut Host) -> Result<Vec<Netif>> {
+        try!(host.send("telemetry::net", 0));
+        try!(host.recv_header());
+
+        let cpu = try!(host.expect_recv("net", 1));
+        Ok(try!(json::decode(&cpu)))
+    }
+
+    fn telemetry_os(host: &mut Host) -> Result<Os> {
+        try!(host.send("telemetry::os", 0));
+        try!(host.recv_header());
+
+        let cpu = try!(host.expect_recv("os", 1));
+        Ok(try!(json::decode(&cpu)))
     }
 }
