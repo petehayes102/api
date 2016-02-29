@@ -8,6 +8,7 @@
 
 //! FFI interface for Host
 
+use Telemetry;
 #[cfg(feature = "remote-run")]
 use libc::{c_char, c_void, uint32_t};
 use std::convert;
@@ -16,52 +17,53 @@ use std::{ptr, str};
 #[cfg(feature = "remote-run")]
 use std::ffi::{CStr, CString};
 use super::*;
+use telemetry::ffi::Ffi__Telemetry;
 #[cfg(feature = "remote-run")]
 use zmq;
-
-#[cfg(feature = "local-run")]
-#[repr(C)]
-pub struct Ffi__Host;
 
 #[cfg(feature = "remote-run")]
 #[repr(C)]
 pub struct Ffi__Host {
-    hostname: *mut c_char,
-    api_sock: *mut c_void,
-    upload_sock: *mut c_void,
-    download_port: uint32_t,
+    #[cfg(feature = "remote-run")]
+    hostname: Option<*mut c_char>,
+    #[cfg(feature = "remote-run")]
+    api_sock: Option<*mut c_void>,
+    #[cfg(feature = "remote-run")]
+    upload_sock: Option<*mut c_void>,
+    #[cfg(feature = "remote-run")]
+    download_port: Option<uint32_t>,
+    telemetry: Ffi__Telemetry,
 }
 
 impl convert::From<Host> for Ffi__Host {
     #[cfg(feature = "local-run")]
     #[allow(unused_variables)]
     fn from(host: Host) -> Ffi__Host {
-        Ffi__Host
+        Ffi__Host {
+            telemetry: Ffi__Telemetry::from(host.telemetry),
+        }
     }
 
     #[cfg(feature = "remote-run")]
     fn from(host: Host) -> Ffi__Host {
         Ffi__Host {
-            hostname: if host.hostname.is_some() {
-                CString::new(host.hostname.unwrap()).unwrap().into_raw()
+            hostname: if let Some(hostname) = host.hostname {
+                Some(CString::new(hostname).unwrap().into_raw())
             } else {
-                CString::new("").unwrap().into_raw()
+                None
             },
-            api_sock: if host.api_sock.is_some() {
-                host.api_sock.unwrap().to_raw()
+            api_sock: if let Some(mut sock) = host.api_sock {
+                Some(sock.to_raw())
             } else {
-                ptr::null_mut()
+                None
             },
-            upload_sock: if host.upload_sock.is_some() {
-                host.upload_sock.unwrap().to_raw()
+            upload_sock: if let Some(mut sock) = host.upload_sock {
+                Some(sock.to_raw())
             } else {
-                ptr::null_mut()
+                None
             },
-            download_port: if host.download_port.is_some() {
-                host.download_port.unwrap()
-            } else {
-                0
-            },
+            download_port: host.download_port,
+            telemetry: Ffi__Telemetry::from(host.telemetry),
         }
     }
 }
@@ -70,34 +72,31 @@ impl convert::From<Ffi__Host> for Host {
     #[cfg(feature = "local-run")]
     #[allow(unused_variables)]
     fn from(ffi_host: Ffi__Host) -> Host {
-        Host
+        Host {
+            telemetry: Telemetry::from(ffi_host.telemetry),
+        }
     }
 
     #[cfg(feature = "remote-run")]
     fn from(ffi_host: Ffi__Host) -> Host {
-        let hostname = unsafe { str::from_utf8(CStr::from_ptr(ffi_host.hostname).to_bytes()).unwrap().to_string() };
-
         Host {
-            hostname: if hostname == "" {
-                Some(String::new())
+            hostname: if let Some(hostname) = ffi_host.hostname {
+                Some(str::from_utf8(unsafe { CStr::from_ptr(hostname).to_bytes() }).unwrap().to_string())
             } else {
-                Some(hostname)
-            },
-            api_sock: if ffi_host.api_sock == ptr::null_mut() {
                 None
-            } else {
-                Some(zmq::Socket::from_raw(ffi_host.api_sock))
             },
-            upload_sock: if ffi_host.upload_sock == ptr::null_mut() {
+            api_sock: if let Some(sock) = ffi_host.api_sock {
+                Some(zmq::Socket::from_raw(sock))
+            } else {
                 None
-            } else {
-                Some(zmq::Socket::from_raw(ffi_host.upload_sock))
             },
-            download_port: if ffi_host.download_port == 0 {
+            upload_sock: if let Some(sock) = ffi_host.upload_sock {
+                Some(zmq::Socket::from_raw(sock))
+            } else {
                 None
-            } else {
-                Some(ffi_host.download_port)
             },
+            download_port: ffi_host.download_port,
+            telemetry: Telemetry::from(ffi_host.telemetry),
         }
     }
 }
@@ -130,14 +129,19 @@ pub extern "C" fn host_close(ffi_host_ptr: *mut Ffi__Host) {
     host.close().unwrap();
 }
 
+#[no_mangle]
+pub extern "C" fn host_telemetry(ffi_host_ptr: *mut Ffi__Host) -> Ffi__Telemetry {
+    let host = Host::from(unsafe { ptr::read(ffi_host_ptr) });
+    Ffi__Telemetry::from(host.telemetry)
+}
+
 #[cfg(test)]
 mod tests {
-    use Host;
+    use {Host, Telemetry};
     #[cfg(feature = "remote-run")]
     use std::ffi::CString;
-    #[cfg(feature = "remote-run")]
-    use std::ptr;
     use super::*;
+    use telemetry::ffi::Ffi__Telemetry;
     #[cfg(feature = "remote-run")]
     use zmq;
 
@@ -162,10 +166,11 @@ mod tests {
         let mut sock = ctx.socket(zmq::REQ).unwrap();
 
         let ffi_host = Ffi__Host {
-            hostname: CString::new("localhost").unwrap().into_raw(),
-            api_sock: sock.to_raw(),
-            upload_sock: ptr::null_mut(),
-            download_port: 0,
+            hostname: Some(CString::new("localhost").unwrap().into_raw()),
+            api_sock: Some(sock.to_raw()),
+            upload_sock: None,
+            download_port: None,
+            telemetry: Ffi__Telemetry::from(Telemetry::new()),
         };
 
         Host::from(ffi_host);

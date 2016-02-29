@@ -56,6 +56,7 @@ pub struct Target;
 pub enum Targets {
     Centos,
     Debian,
+    Default,
     Fedora,
     Freebsd,
     Linux,

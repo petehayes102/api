@@ -6,13 +6,24 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
+mod ffi;
+
 use {Result, OsPlatform};
 use std::option::Option as stdOption;
 use super::Targets;
 
 pub struct Option<T> {
+    target: Targets,
     value: T,
-    target: stdOption<Targets>,
+}
+
+impl <T>Option<T> {
+    pub fn new(target: Targets, value: T) -> Option<T> {
+        Option {
+            target: target,
+            value: value,
+        }
+    }
 }
 
 pub struct Item<T> {
@@ -44,20 +55,17 @@ impl <T>Item<T> {
         };
 
         for opt in options {
-            if let Some(tgt) = opt.target {
-                match tgt {
-                    Targets::Centos => item.centos = Some(opt.value),
-                    Targets::Debian => item.debian = Some(opt.value),
-                    Targets::Fedora => item.fedora = Some(opt.value),
-                    Targets::Freebsd => item.freebsd = Some(opt.value),
-                    Targets::Linux => item.linux = Some(opt.value),
-                    Targets::Macos => item.macos = Some(opt.value),
-                    Targets::Redhat => item.redhat = Some(opt.value),
-                    Targets::Ubuntu => item.ubuntu = Some(opt.value),
-                    Targets::Unix => item.unix = Some(opt.value),
-                }
-            } else {
-                item.default = Some(opt.value);
+            match opt.target {
+                Targets::Centos => item.centos = Some(opt.value),
+                Targets::Debian => item.debian = Some(opt.value),
+                Targets::Default => item.default = Some(opt.value),
+                Targets::Fedora => item.fedora = Some(opt.value),
+                Targets::Freebsd => item.freebsd = Some(opt.value),
+                Targets::Linux => item.linux = Some(opt.value),
+                Targets::Macos => item.macos = Some(opt.value),
+                Targets::Redhat => item.redhat = Some(opt.value),
+                Targets::Ubuntu => item.ubuntu = Some(opt.value),
+                Targets::Unix => item.unix = Some(opt.value),
             }
         }
 
@@ -76,6 +84,27 @@ impl <T>Item<T> {
             _ => self.default.as_ref().unwrap(),
         })
     }
+}
+
+#[macro_export]
+macro_rules! dataitem {
+    ( $d:ty: $v:expr ) => {{
+        use inapi::{DataItem, DataOption, Targets};
+
+        DataItem::new(vec![ DataOption::new(Targets::Default, $v) ]);
+    }};
+
+    ( $d:ty: $( $t:path => $v:expr ),* ) => {{
+        use inapi::{DataItem, DataOption, Targets};
+
+        let mut options: Vec<DataOption<$d>> = Vec::new();
+
+        $(
+            options.push(DataOption::new($t, $v));
+        )*
+
+        DataItem::new(options)
+    }};
 }
 
 // #[cfg(test)]

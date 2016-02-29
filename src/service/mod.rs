@@ -31,16 +31,16 @@
 
 pub mod ffi;
 
-use {CommandResult, Host, Result};
+use {CommandResult, DataItem, Host, Result};
 use target::Target;
 
 /// Container for managing a service.
-pub struct Service {
+pub struct Service<'a> {
     /// Name of the service
-    name: String,
+    name: DataItem<&'a str>,
 }
 
-impl Service {
+impl <'a>Service<'a> {
     /// Create a new Service struct.
     ///
     /// # Examples
@@ -49,9 +49,9 @@ impl Service {
     /// # use inapi::Service;
     /// let service = Service::new("myservice");
     /// ```
-    pub fn new(name: &str) -> Service {
+    pub fn new(name: DataItem<&'a str>) -> Service {
         Service {
-            name: name.to_string(),
+            name: name,
         }
     }
 
@@ -66,7 +66,9 @@ impl Service {
     /// service.action(&mut host, "restart");
     /// ```
     pub fn action(&self, host: &mut Host, action: &str) -> Result<CommandResult> {
-        Target::service_action(host, &self.name, action)
+        let telemetry = host.telemetry();
+        let ref platform = try!(telemetry.get_os(host)).platform;
+        Target::service_action(host, try!(self.name.resolve(&platform)), action)
     }
 }
 

@@ -35,7 +35,7 @@ use error::{Error, MissingFrame};
 #[cfg(feature = "remote-run")]
 use file::FileOpts;
 #[cfg(feature = "remote-run")]
-use Result;
+use {Result, Telemetry};
 #[cfg(feature = "remote-run")]
 use std::sync::Mutex;
 #[cfg(feature = "remote-run")]
@@ -51,25 +51,30 @@ lazy_static! {
 }
 
 /// Representation of a managed host.
-#[cfg(feature = "local-run")]
-pub struct Host;
-#[cfg(feature = "remote-run")]
 pub struct Host {
+    #[cfg(feature = "remote-run")]
     // Hostname or IP of managed host
     hostname: Option<String>,
+    #[cfg(feature = "remote-run")]
     /// API socket
     api_sock: Option<zmq::Socket>,
+    #[cfg(feature = "remote-run")]
     /// File upload socket
     upload_sock: Option<zmq::Socket>,
+    #[cfg(feature = "remote-run")]
     /// File download port
     download_port: Option<u32>,
+    /// Information about a host
+    telemetry: Telemetry,
 }
 
 impl Host {
     /// Create a new Host to represent your managed host.
     #[cfg(feature = "local-run")]
     pub fn new() -> Host {
-        Host
+        Host {
+            telemetry: Telemetry,
+        }
     }
     #[cfg(feature = "remote-run")]
     pub fn new() -> Host {
@@ -78,6 +83,7 @@ impl Host {
             api_sock: None,
             upload_sock: None,
             download_port: None,
+            telemetry: Telemetry::new(),
         }
     }
 
@@ -89,6 +95,7 @@ impl Host {
             api_sock: api_sock,
             upload_sock: upload_sock,
             download_port: download_port,
+            telemetry: Telemetry::new(),
         };
 
         host
@@ -123,6 +130,10 @@ impl Host {
         }
 
         Ok(())
+    }
+
+    pub fn telemetry(&mut self) -> &mut Telemetry {
+        &mut self.telemetry
     }
 
     #[cfg(feature = "remote-run")]
