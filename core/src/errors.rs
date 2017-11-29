@@ -8,11 +8,13 @@
 
 use futures::Future;
 use regex;
+use serde_json;
 use std::{error, io};
 
 error_chain! {
     foreign_links {
         Io(io::Error);
+        Json(serde_json::Error);
         Regex(regex::Error);
     }
 
@@ -28,6 +30,11 @@ error_chain! {
         } {
             description("Provided key not found in output"),
             display("Provided key '{}' not found in {} output", key, cmd),
+        }
+
+        MutRef(h: &'static str) {
+            description("Unable to obtain mutable reference"),
+            display("Unable to obtain mutable reference to {}", h),
         }
 
         ProviderUnavailable(p: &'static str) {

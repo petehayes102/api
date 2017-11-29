@@ -145,18 +145,25 @@ extern crate users;
 pub mod command;
 pub mod errors;
 pub mod host;
+mod message;
 pub mod prelude {
     //! The API prelude.
     pub use command::{self, Command};
     pub use host::Host;
     pub use host::remote::{self, Plain};
     pub use host::local::{self, Local};
-    pub use package::{self, Package};
-    pub use service::{self, Service};
-    pub use telemetry::{self, Cpu, FsMount, LinuxDistro, Os, OsFamily, OsPlatform, Telemetry};
+    // pub use package::{self, Package};
+    // pub use service::{self, Service};
+    // pub use telemetry::{self, Cpu, FsMount, LinuxDistro, Os, OsFamily, OsPlatform, Telemetry};
 }
-pub mod package;
-#[doc(hidden)] pub mod remote;
-pub mod service;
-mod target;
-pub mod telemetry;
+// pub mod package;
+// #[doc(hidden)] pub mod remote;
+mod request;
+// pub mod service;
+// mod target;
+// pub mod telemetry;
+
+#[doc(hidden)]
+pub use message::{FromMessage, InMessage};
+#[doc(hidden)]
+pub use request::Request;

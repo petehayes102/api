@@ -6,16 +6,17 @@
 
 //! A connection to the local machine.
 
+use command::providers::CommandProvider;
 use errors::*;
 use futures::{future, Future};
-use remote::{Executable, Request, Response, ResponseResult};
-use std::io;
+use message::IntoMessage;
+use request::Executable;
+use std::thread::sleep;
+use std::time::Duration;
 use std::sync::Arc;
-use super::Host;
-use telemetry::{self, Telemetry};
-// use telemetry::Telemetry;
+use super::{Host, HostType, Providers};
+// use telemetry::{self, Telemetry};
 use tokio_core::reactor::Handle;
-use tokio_proto::streaming::{Body, Message};
 
 /// A `Host` type that talks directly to the local machine.
 #[derive(Clone)]
@@ -25,51 +26,74 @@ pub struct Local {
 }
 
 struct Inner {
-    telemetry: Option<Telemetry>,
+    providers: Providers,
+    // telemetry: Option<Telemetry>,
 }
 
 impl Local {
     /// Create a new `Host` targeting the local machine.
-    pub fn new(handle: &Handle) -> Box<Future<Item = Local, Error = Error>> {
+    pub fn new(handle: &Handle) -> Box<Future<Item = Self, Error = Error>> {
+        let providers = match super::get_providers() {
+            Ok(p) => p,
+            Err(e) => return Box::new(future::err(e)),
+        };
+
         let mut host = Local {
-            inner: Arc::new(Inner { telemetry: None }),
+            inner: Arc::new(Inner {
+                providers: providers,
+                // telemetry: None,
+            }),
             handle: handle.clone(),
         };
 
-        Box::new(telemetry::Telemetry::load(&host)
-            .chain_err(|| "Could not load telemetry for host")
-            .map(|t| {
-                Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
-                host
-            }))
+        Box::new(future::ok(host))
+
+        // Box::new(telemetry::Telemetry::load(&host)
+        //     .chain_err(|| "Could not load telemetry for host")
+        //     .map(|t| {
+        //         Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
+        //         host
+        //     }))
     }
 }
 
 impl Host for Local {
-    fn telemetry(&self) -> &Telemetry {
-        self.inner.telemetry.as_ref().unwrap()
-    }
+    // fn telemetry(&self) -> &Telemetry {
+    //     self.inner.telemetry.as_ref().unwrap()
+    // }
 
     fn handle(&self) -> &Handle {
         &self.handle
     }
 
     #[doc(hidden)]
-    fn request_msg(&self, msg: Message<Request, Body<Vec<u8>, io::Error>>) ->
-        Box<Future<Item = Message<Response, Body<Vec<u8>, io::Error>>, Error = Error>>
+    fn get_type<'a>(&'a self) -> HostType<'a> {
+        HostType::Local(self)
+    }
+
+    #[doc(hidden)]
+    fn request<R>(&self, request: R) -> Box<Future<Item = R::Response, Error = Error>>
+        where R: Executable + IntoMessage + 'static
     {
-        Box::new(msg.into_inner()
-           .exec(self)
-           .and_then(|mut msg| {
-               let body = msg.take_body();
-               match msg.into_inner() {
-                   ResponseResult::Ok(response) => if let Some(body) = body {
-                       future::ok(Message::WithBody(response, body))
-                   } else {
-                       future::ok(Message::WithoutBody(response))
-                   },
-                   ResponseResult::Err(e) => future::err(e.into()),
-               }
-           }))
+        Box::new(request.exec(self).and_then(|r| future::ok(r)))
+    }
+
+    fn command(&self) -> &Box<CommandProvider> {
+        &self.inner.providers.command
+    }
+
+    fn set_command<P: CommandProvider + 'static>(&mut self, provider: P) -> Result<()> {
+        // @todo Is this a good thing to do, or should we introduce a Mutex?
+        for _ in 0..5 {
+            match Arc::get_mut(&mut self.inner) {
+                Some(inner) => {
+                    inner.providers.command = Box::new(provider);
+                    return Ok(());
+                },
+                None => sleep(Duration::from_millis(1)),
+            }
+        }
+
+        Err(ErrorKind::MutRef("Local").into())
     }
 }

@@ -8,21 +8,15 @@
 
 mod generic;
 
-use command::ExitStatus;
 use errors::*;
-use remote::ExecutableResult;
 pub use self::generic::Generic;
+use super::Child;
 use tokio_core::reactor::Handle;
 
-/// Specific implementation of `Command`
-#[derive(Clone, Copy, Serialize, Deserialize)]
-pub enum Provider {
-    Generic,
-}
-
+#[doc(hidden)]
 pub trait CommandProvider {
     fn available() -> bool where Self: Sized;
-    fn exec(&self, &Handle, &[&str]) -> ExecutableResult;
+    fn exec(&self, &Handle, &[&str]) -> Result<Child>;
 }
 
 #[doc(hidden)]

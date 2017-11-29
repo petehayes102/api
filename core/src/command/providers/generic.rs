@@ -5,20 +5,10 @@
 // modified, or distributed except according to those terms.
 
 use errors::*;
-use futures::{future, Future};
-use futures::sink::Sink;
-use futures::stream::Stream;
-use futures::sync::mpsc;
-use remote::{ExecutableResult, Response, ResponseResult};
-use serde_json;
-use std::io::{self, BufReader};
 use std::process::{Command, Stdio};
-use std::result;
-use super::{CommandProvider, ExitStatus};
+use super::{Child, CommandProvider};
 use tokio_core::reactor::Handle;
-use tokio_io::io::lines;
 use tokio_process::CommandExt;
-use tokio_proto::streaming::{Body, Message};
 
 pub struct Generic;
 
@@ -27,10 +17,11 @@ impl CommandProvider for Generic {
         true
     }
 
-    fn exec(&self, handle: &Handle, cmd: &[&str]) -> ExecutableResult {
-        let (cmd, cmd_args) = match cmd.split_first() {
-            Some((s, a)) => (s, a),
-            None => return Box::new(future::err("Invalid shell provided".into())),
+    fn exec(&self, handle: &Handle, cmd: &[&str]) -> Result<Child> {
+        let result = cmd.split_first().ok_or("Invalid shell provided".into());
+        let (cmd, cmd_args): (&&str, &[&str]) = match result {
+            Ok((c, a)) => (c, a),
+            Err(e) => return Err(e),
         };
 
         let child = Command::new(cmd)
@@ -38,52 +29,8 @@ impl CommandProvider for Generic {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn_async(handle)
-            .chain_err(|| "Command execution failed");
-        let mut child = match child {
-            Ok(c) => c,
-            Err(e) => return Box::new(future::err(e)),
-        };
+            .chain_err(|| "Command execution failed")?;
 
-        let (tx1, body) = Body::pair();
-        let tx2 = tx1.clone();
-
-        let stdout = child.stdout().take().unwrap();
-        let outbuf = BufReader::new(stdout);
-        let stderr = child.stderr().take().unwrap();
-        let errbuf = BufReader::new(stderr);
-
-        let status = child.map_err(|e| Error::with_chain(e, ErrorKind::Msg("Command execution failed".into())))
-            .and_then(|s| {
-                let status = ExitStatus {
-                    success: s.success(),
-                    code: s.code(),
-                };
-                match serde_json::to_string(&status)
-                    .chain_err(|| "Could not serialize `ExitStatus` struct")
-                {
-                    Ok(s) => {
-                        let mut frame = "ExitStatus:".to_owned();
-                        frame.push_str(&s);
-                        Box::new(tx2.send(Ok(frame.into_bytes()))
-                            .map_err(|e| Error::with_chain(e, "Could not forward command output to Body"))
-                        ) as Box<Future<Item = mpsc::Sender<result::Result<Vec<u8>, io::Error>>, Error = Error>>
-                    },
-                    Err(e) => Box::new(future::err(e)),
-                }
-            });
-
-        let stream = lines(outbuf)
-            .select(lines(errbuf))
-            .map(|s| Ok(s.into_bytes()))
-            .map_err(|e| Error::with_chain(e, ErrorKind::Msg("Command execution failed".into())))
-            .forward(tx1.sink_map_err(|e| Error::with_chain(e, "Could not forward command output to Body")))
-            .join(status)
-            // @todo We should repatriate these errors somehow
-            .map(|_| ())
-            .map_err(|_| ());
-
-        handle.spawn(stream);
-
-        Box::new(future::ok(Message::WithBody(ResponseResult::Ok(Response::Null), body)))
+        Ok(child.into())
     }
 }

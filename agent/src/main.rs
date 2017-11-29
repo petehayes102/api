@@ -22,11 +22,12 @@ use error_chain::ChainedError;
 use errors::*;
 use futures::{future, Future};
 use intecture_api::host::local::Local;
-use intecture_api::host::remote::{JsonLineProto, LineMessage};
-use intecture_api::remote::{Executable, Request, ResponseResult};
+use intecture_api::host::remote::JsonLineProto;
+use intecture_api::{FromMessage, InMessage, Request};
 use std::fs::File;
 use std::io::{self, Read};
 use std::net::SocketAddr;
+use std::result;
 use std::sync::Arc;
 use tokio_core::reactor::Remote;
 use tokio_proto::streaming::Message;
@@ -42,45 +43,27 @@ pub struct NewApi {
 }
 
 impl Service for Api {
-    type Request = LineMessage;
-    type Response = LineMessage;
+    type Request = InMessage;
+    type Response = InMessage;
     type Error = Error;
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
-        let req = match req {
-            Message::WithBody(req, _) => req,
-            Message::WithoutBody(req) => req,
-        };
-
-        let request: Request = match serde_json::from_value(req).chain_err(|| "Could not deserialize Request") {
+        let request = match Request::from_msg(req)
+            .chain_err(|| "Malformed Request")
+        {
             Ok(r) => r,
             Err(e) => return Box::new(future::ok(error_to_msg(e))),
         };
 
         Box::new(request.exec(&self.host)
-            .chain_err(|| "Failed to execute Request")
-            .then(|req| {
-                match req {
-                    Ok(mut msg) => {
-                        let body = msg.take_body();
-                        match serde_json::to_value(msg.into_inner()).chain_err(|| "Could not serialize Result") {
-                            Ok(v) => match body {
-                                Some(b) => future::ok(Message::WithBody(v, b)),
-                                None => future::ok(Message::WithoutBody(v)),
-                            },
-                            Err(e) => future::ok(error_to_msg(e)),
-                        }
-                    },
-                    Err(e) => future::ok(error_to_msg(e)),
-                }
-            }))
+            .chain_err(|| "Failed to execute Request"))
     }
 }
 
 impl NewService for NewApi {
-    type Request = LineMessage;
-    type Response = LineMessage;
+    type Request = InMessage;
+    type Response = InMessage;
     type Error = Error;
     type Instance = Api;
     fn new_service(&self) -> io::Result<Self::Instance> {
@@ -150,8 +133,8 @@ quick_main!(|| -> Result<()> {
     Ok(())
 });
 
-fn error_to_msg(e: Error) -> LineMessage {
-    let response = ResponseResult::Err(format!("{}", e.display_chain()));
+fn error_to_msg(e: Error) -> InMessage {
+    let response: result::Result<(), String> = Err(format!("{}", e.display_chain()));
     // If we can't serialize this, we can't serialize anything, so
     // panicking is appropriate.
     let value = serde_json::to_value(response)

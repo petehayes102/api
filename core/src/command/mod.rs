@@ -9,18 +9,25 @@
 //! A shell command is represented by the `Command` struct, which is not
 //! idempotent.
 
-mod providers;
+pub mod providers;
 
+use bytes::Bytes;
 use errors::*;
-use futures::{future, Future, Poll};
-use futures::stream::Stream;
-use futures::sync::oneshot;
+use futures::{future, Future, Poll, Stream};
+use futures::future::FutureResult;
+use futures::sink::Sink;
+use futures::sync::{mpsc, oneshot};
 use host::Host;
-use remote::{Request, Response};
-use std::io;
-#[doc(hidden)] pub use self::providers::{factory, Generic};
-pub use self::providers::Provider;
-use serde_json;
+use host::local::Local;
+use message::{FromMessage, IntoMessage, InMessage};
+use request::{Executable, Request};
+use serde_json as json;
+use std::convert::From;
+use std::io::{self, BufReader};
+use std::result;
+use tokio_core::reactor::Handle;
+use tokio_io::io::lines;
+use tokio_process;
 use tokio_proto::streaming::{Body, Message};
 
 #[cfg(not(windows))]
@@ -144,17 +151,16 @@ const DEFAULT_SHELL: [&'static str; 1] = ["yeah...we don't currently support win
 ///core.run(result).unwrap();
 ///# }
 ///```
-pub struct Command<H: Host> {
+pub struct Command<H> {
     host: H,
-    provider: Option<Provider>,
     cmd: Vec<String>,
 }
 
 /// Represents the status of a running `Command`, including the output stream
 /// and exit status.
-pub struct CommandStatus {
-    stream: Option<Box<Stream<Item = String, Error = Error>>>,
+pub struct Child {
     exit_status: Option<Box<Future<Item = ExitStatus, Error = Error>>>,
+    stream: Option<Box<Stream<Item = String, Error = Error>>>,
 }
 
 /// Represents the exit status of a `Command` as a `Result`-like `Future`. If
@@ -180,6 +186,12 @@ pub struct ExitStatus {
     pub code: Option<i32>,
 }
 
+#[doc(hidden)]
+#[derive(Serialize, Deserialize)]
+pub struct RequestExec {
+    cmd: Vec<String>,
+}
+
 impl<H: Host + 'static> Command<H> {
     /// Create a new `Command` with the default [`Provider`](enum.Provider.html).
     ///
@@ -189,43 +201,15 @@ impl<H: Host + 'static> Command<H> {
     /// argument needs to be a separate item in the slice. For example, to use
     /// Bash as your shell, you'd provide the value:
     /// `Some(&["/bin/bash", "-c"])`.
-    pub fn new(host: &H, cmd: &str, shell: Option<&[&str]>) -> Command<H> {
+    pub fn new(host: &H, cmd: &str, shell: Option<&[&str]>) -> Self {
         let mut args: Vec<String> = shell.unwrap_or(&DEFAULT_SHELL).to_owned()
             .iter().map(|a| (*a).to_owned()).collect();
         args.push(cmd.into());
 
         Command {
             host: host.clone(),
-            provider: None,
             cmd: args,
         }
-    }
-
-    /// Create a new `Command` with the specified [`Provider`](enum.Provider.html).
-    ///
-    ///## Example
-    ///```
-    ///extern crate futures;
-    ///extern crate intecture_api;
-    ///extern crate tokio_core;
-    ///
-    ///use futures::Future;
-    ///use intecture_api::command::Provider;
-    ///use intecture_api::prelude::*;
-    ///use tokio_core::reactor::Core;
-    ///
-    ///# fn main() {
-    ///let mut core = Core::new().unwrap();
-    ///let handle = core.handle();
-    ///
-    ///let host = Local::new(&handle).wait().unwrap();
-    ///
-    ///Command::with_provider(&host, Provider::Generic, "ls /path/to/foo", None);
-    ///# }
-    pub fn with_provider(host: &H, provider: Provider, cmd: &str, shell: Option<&[&str]>) -> Command<H> {
-        let mut cmd = Self::new(host, cmd, shell);
-        cmd.provider = Some(provider);
-        cmd
     }
 
     /// Execute the command.
@@ -254,51 +238,17 @@ impl<H: Host + 'static> Command<H> {
     ///
     /// This is the error you'll see if you prematurely drop the output `Stream`
     /// while trying to resolve the `Future<Item = ExitStatus, ...>`.
-    pub fn exec(&self) -> Box<Future<Item = CommandStatus, Error = Error>> {
-        let request = Request::CommandExec(self.provider, self.cmd.clone());
+    pub fn exec(&self) -> Box<Future<Item = Child, Error = Error>> {
+        let request = RequestExec {
+            cmd: self.cmd.clone(),
+        };
+
         Box::new(self.host.request(request)
-            .chain_err(|| ErrorKind::Request { endpoint: "Command", func: "exec" })
-            .map(|msg| {
-                CommandStatus::new(msg)
-            }))
+            .chain_err(|| ErrorKind::Request { endpoint: "Command", func: "exec" }))
     }
 }
 
-impl CommandStatus {
-    #[doc(hidden)]
-    pub fn new(mut msg: Message<Response, Body<Vec<u8>, io::Error>>) -> CommandStatus {
-        let (tx, rx) = oneshot::channel::<ExitStatus>();
-        let mut tx = Some(tx);
-        let stream = msg.take_body()
-            .expect("Command::exec reply missing body stream")
-            .filter_map(move |v| {
-                let s = String::from_utf8_lossy(&v).to_string();
-
-                // @todo This is a heuristical approach which is fallible
-                if s.starts_with("ExitStatus:") {
-                    let (_, json) = s.split_at(11);
-                    match serde_json::from_str(json) {
-                        Ok(status) => {
-                            // @todo What should happen if this fails?
-                            let _ = tx.take().unwrap().send(status);
-                            return None;
-                        },
-                        _ => (),
-                    }
-                }
-
-                Some(s)
-            })
-            .then(|r| r.chain_err(|| "Command execution failed"));
-
-        let exit_status = rx.chain_err(|| "Buffer dropped before ExitStatus was sent");
-
-        CommandStatus {
-            stream: Some(Box::new(stream)),
-            exit_status: Some(Box::new(exit_status)),
-        }
-    }
-
+impl Child {
     /// Take ownership of the output stream.
     ///
     /// The stream is guaranteed to be present only if this is the first call
@@ -336,7 +286,33 @@ impl CommandStatus {
     }
 }
 
-impl Future for CommandStatus {
+impl From<tokio_process::Child> for Child {
+    fn from(mut child: tokio_process::Child) -> Self {
+        let stdout = child.stdout().take().expect("Child was not configured with stdout");
+        let outbuf = BufReader::new(stdout);
+        let stderr = child.stderr().take().expect("Child was not configured with stderr");
+        let errbuf = BufReader::new(stderr);
+
+        let stream = lines(outbuf)
+            .select(lines(errbuf))
+            .map_err(|e| Error::with_chain(e, ErrorKind::Msg("Command execution failed".into())));
+
+        let status = child.map(|s| {
+                ExitStatus {
+                    success: s.success(),
+                    code: s.code(),
+                }
+            })
+            .map_err(|e| Error::with_chain(e, ErrorKind::Msg("Command execution failed".into())));
+
+        Child {
+            exit_status: Some(Box::new(status)),
+            stream: Some(Box::new(stream)),
+        }
+    }
+}
+
+impl Future for Child {
     type Item = ExitStatus;
     type Error = Error;
 
@@ -351,11 +327,103 @@ impl Future for CommandStatus {
     }
 }
 
+impl FromMessage for Child {
+    fn from_msg(mut msg: InMessage) -> Result<Self> {
+        let (tx, rx) = oneshot::channel::<ExitStatus>();
+        let mut tx = Some(tx);
+        let stream = msg.take_body()
+            .expect("Command::exec reply missing body stream")
+            .filter_map(move |v| {
+                let s = String::from_utf8_lossy(&v).to_string();
+
+                // @todo This is a heuristical approach which is fallible
+                if s.starts_with("ExitStatus:") {
+                    let (_, json) = s.split_at(11);
+                    match json::from_str(json) {
+                        Ok(status) => {
+                            // @todo What should happen if this fails?
+                            let _ = tx.take().unwrap().send(status);
+                            return None;
+                        },
+                        _ => (),
+                    }
+                }
+
+                Some(s)
+            })
+            .then(|r| r.chain_err(|| "Command execution failed"));
+
+        Ok(Child {
+            exit_status: Some(Box::new(rx.chain_err(|| "Stream dropped before ExitStatus was sent"))),
+            stream: Some(Box::new(stream)),
+        })
+    }
+}
+
+impl IntoMessage for Child {
+    fn into_msg(self, handle: &Handle) -> Result<InMessage> {
+        let (tx1, body) = Body::pair();
+        let tx2 = tx1.clone();
+
+        let status = self.exit_status.unwrap().and_then(|s| {
+            match json::to_string(&s)
+                .chain_err(|| "Could not serialize `ExitStatus` struct")
+            {
+                Ok(s) => {
+                    let mut frame = "ExitStatus:".to_owned();
+                    frame.push_str(&s);
+                    Box::new(tx2.send(Ok(Bytes::from(frame.into_bytes())))
+                        .map_err(|e| Error::with_chain(e, "Could not forward command output to Body"))
+                    ) as Box<Future<Item = mpsc::Sender<result::Result<Bytes, io::Error>>, Error = Error>>
+                },
+                Err(e) => Box::new(future::err(e)),
+            }
+        });
+
+        let stream = self.stream.unwrap().map(|s| Ok(Bytes::from(s.into_bytes())))
+            .forward(tx1.sink_map_err(|e| Error::with_chain(e, "Could not forward command output to Body")))
+            .join(status)
+            // @todo We should repatriate these errors somehow
+            .map(|_| ())
+            .map_err(|_| ());
+
+        handle.spawn(stream);
+
+        let value: result::Result<_, ()> = Ok(());
+        Ok(Message::WithBody(json::to_value(value).unwrap(), body))
+    }
+}
+
 impl Future for CommandResult {
     type Item = String;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.inner.poll()
+    }
+}
+
+impl Executable for RequestExec {
+    type Response = Child;
+    type Future = FutureResult<Child, Error>;
+
+    fn exec(self, host: &Local) -> Self::Future {
+        let args: Vec<&str> = self.cmd.iter().map(|a| &**a).collect();
+        match host.command().exec(host.handle(), &args) {
+            Ok(child) => future::ok(child),
+            Err(e) => future::err(e),
+        }
+    }
+}
+
+impl FromMessage for RequestExec {
+    fn from_msg(msg: InMessage) -> Result<Self> {
+        Ok(json::from_value(msg.into_inner())?)
+    }
+}
+
+impl IntoMessage for RequestExec {
+    fn into_msg(self, handle: &Handle) -> Result<InMessage> {
+        Request::CommandExec(self).into_msg(handle)
     }
 }
