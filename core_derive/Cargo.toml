@@ -1,0 +1,23 @@
+[package]
+name = "intecture_core_derive"
+version = "0.0.1"
+authors = [ "Pete Hayes <pete@intecture.io>" ]
+license = "MPL-2.0"
+description = "Macros 1.1 implementation of #[derive(FromMessage, IntoMessage)]"
+homepage = "http://intecture.io"
+repository = "https://github.com/intecture/api"
+documentation = "https://intecture.io/rust/inapi/"
+keywords = ["intecture", "api", "derive"]
+categories = ["servers"]
+readme = "README.md"
+include = ["Cargo.toml", "src/**/*.rs", "README.md", "LICENSE"]
+
+[badges]
+travis-ci = { repository = "intecture/api" }
+
+[dependencies]
+quote = "0.3"
+syn = "0.11"
+
+[lib]
+proc-macro = true

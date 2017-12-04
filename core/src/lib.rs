@@ -128,6 +128,7 @@ extern crate erased_serde;
 #[macro_use] extern crate error_chain;
 extern crate futures;
 extern crate hostname;
+#[macro_use] extern crate intecture_core_derive;
 extern crate ipnetwork;
 #[macro_use] extern crate log;
 extern crate pnet;
