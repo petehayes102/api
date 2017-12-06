@@ -26,9 +26,6 @@ pub trait Host: Clone {
     fn handle(&self) -> &Handle;
 
     #[doc(hidden)]
-    fn get_type<'a>(&'a self) -> HostType<'a>;
-
-    #[doc(hidden)]
     fn request<R>(&self, request: R) -> Box<Future<Item = R::Response, Error = Error>>
         where R: Executable + IntoMessage + 'static;
 
@@ -37,12 +34,6 @@ pub trait Host: Clone {
 
     /// Override the default `Command` provider for this host.
     fn set_command<P: command::providers::CommandProvider + 'static>(&mut self, P) -> Result<()>;
-}
-
-#[doc(hidden)]
-pub enum HostType<'a> {
-    Local(&'a local::Local),
-    Remote(&'a remote::Plain),
 }
 
 struct Providers {

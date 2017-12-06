@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
-use super::{Host, HostType, Providers};
+use super::{Host, Providers};
 // use telemetry::{self, Telemetry};
 use tokio_core::reactor::Handle;
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -103,11 +103,6 @@ impl Host for Plain {
 
     fn handle(&self) -> &Handle {
         &self.handle
-    }
-
-    #[doc(hidden)]
-    fn get_type<'a>(&'a self) -> HostType<'a> {
-        HostType::Remote(self)
     }
 
     #[doc(hidden)]

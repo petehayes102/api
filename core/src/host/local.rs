@@ -14,7 +14,7 @@ use request::Executable;
 use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
-use super::{Host, HostType, Providers};
+use super::{Host, Providers};
 // use telemetry::{self, Telemetry};
 use tokio_core::reactor::Handle;
 
@@ -64,11 +64,6 @@ impl Host for Local {
 
     fn handle(&self) -> &Handle {
         &self.handle
-    }
-
-    #[doc(hidden)]
-    fn get_type<'a>(&'a self) -> HostType<'a> {
-        HostType::Local(self)
     }
 
     #[doc(hidden)]
