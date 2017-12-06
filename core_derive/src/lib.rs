@@ -14,17 +14,17 @@ use syn::{Lit, MetaItem};
 
 #[proc_macro_derive(FromMessage)]
 pub fn from_message(input: TokenStream) -> TokenStream {
-    let s = input.to_string();
-    let ast = syn::parse_derive_input(&s).unwrap();
+    let ast = syn::parse_derive_input(&input.to_string()).unwrap();
     let gen = impl_from_message(&ast);
     gen.parse().unwrap()
 }
 
 fn impl_from_message(ast: &syn::DeriveInput) -> quote::Tokens {
     let name = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
     quote! {
-        impl FromMessage for #name {
+        impl #impl_generics FromMessage for #name #ty_generics #where_clause {
             fn from_msg(msg: InMessage) -> Result<Self> {
                 Ok(json::from_value(msg.into_inner())?)
             }
@@ -34,14 +34,14 @@ fn impl_from_message(ast: &syn::DeriveInput) -> quote::Tokens {
 
 #[proc_macro_derive(IntoMessage, attributes(request))]
 pub fn into_message(input: TokenStream) -> TokenStream {
-    let s = input.to_string();
-    let ast = syn::parse_derive_input(&s).unwrap();
+    let ast = syn::parse_derive_input(&input.to_string()).unwrap();
     let gen = impl_into_message(&ast);
     gen.parse().unwrap()
 }
 
 fn impl_into_message(ast: &syn::DeriveInput) -> quote::Tokens {
     let name = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     let mut req_attr = None;
 
     for attr in &ast.attrs {
@@ -54,7 +54,7 @@ fn impl_into_message(ast: &syn::DeriveInput) -> quote::Tokens {
     let request = Ident::new(req_attr.expect("Missing `request` attribute"));
 
     quote! {
-        impl IntoMessage for #name {
+        impl #impl_generics IntoMessage for #name #ty_generics #where_clause {
             fn into_msg(self, handle: &Handle) -> Result<InMessage> {
                 Request::#request(self).into_msg(handle)
             }
