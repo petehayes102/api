@@ -23,11 +23,12 @@ pub use self::nixos::Nixos;
 pub use self::ubuntu::Ubuntu;
 
 use errors::*;
-use remote::ExecutableResult;
+use futures::Future;
+use super::Telemetry;
 
 pub trait TelemetryProvider {
     fn available() -> bool where Self: Sized;
-    fn load(&self) -> ExecutableResult;
+    fn load(&self) -> Box<Future<Item = Telemetry, Error = Error>>;
 }
 
 #[doc(hidden)]

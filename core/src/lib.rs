@@ -155,14 +155,14 @@ pub mod prelude {
     pub use host::local::{self, Local};
     // pub use package::{self, Package};
     // pub use service::{self, Service};
-    // pub use telemetry::{self, Cpu, FsMount, LinuxDistro, Os, OsFamily, OsPlatform, Telemetry};
+    pub use telemetry::{self, Cpu, FsMount, LinuxDistro, Os, OsFamily, OsPlatform, Telemetry};
 }
 // pub mod package;
 // #[doc(hidden)] pub mod remote;
 mod request;
 // pub mod service;
-// mod target;
-// pub mod telemetry;
+mod target;
+pub mod telemetry;
 
 #[doc(hidden)]
 pub use message::{FromMessage, InMessage};

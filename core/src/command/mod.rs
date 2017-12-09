@@ -17,11 +17,8 @@ use futures::{future, Future};
 use futures::future::FutureResult;
 use host::Host;
 use host::local::Local;
-use message::{FromMessage, IntoMessage, InMessage};
-use request::{Executable, Request};
+use request::Executable;
 use self::child::Child;
-use serde_json as json;
-use tokio_core::reactor::Handle;
 
 #[cfg(not(windows))]
 const DEFAULT_SHELL: [&'static str; 2] = ["/bin/sh", "-c"];
@@ -151,8 +148,7 @@ pub struct Command<H> {
 
 #[doc(hidden)]
 #[derive(Serialize, Deserialize, FromMessage, IntoMessage)]
-#[request = "CommandExec"]
-pub struct RequestExec {
+pub struct CommandExec {
     cmd: Vec<String>,
 }
 
@@ -203,7 +199,7 @@ impl<H: Host + 'static> Command<H> {
     /// This is the error you'll see if you prematurely drop the output `Stream`
     /// while trying to resolve the `Future<Item = ExitStatus, ...>`.
     pub fn exec(&self) -> Box<Future<Item = Child, Error = Error>> {
-        let request = RequestExec {
+        let request = CommandExec {
             cmd: self.cmd.clone(),
         };
 
@@ -212,7 +208,7 @@ impl<H: Host + 'static> Command<H> {
     }
 }
 
-impl Executable for RequestExec {
+impl Executable for CommandExec {
     type Response = Child;
     type Future = FutureResult<Child, Error>;
 

@@ -5,15 +5,13 @@
 // modified, or distributed except according to those terms.
 
 use errors::*;
-use futures::future;
+use futures::{future, Future};
 use pnet::datalink::interfaces;
-use remote::{ExecutableResult, Response, ResponseResult};
 use std::{env, process, str};
 use super::TelemetryProvider;
 use target::{default, linux};
 use target::linux::LinuxFlavour;
 use telemetry::{Cpu, LinuxDistro, Os, OsFamily, OsPlatform, Telemetry};
-use tokio_proto::streaming::Message;
 
 pub struct Debian;
 
@@ -22,16 +20,14 @@ impl TelemetryProvider for Debian {
         cfg!(target_os="linux") && linux::fingerprint_os() == Some(LinuxFlavour::Debian)
     }
 
-    fn load(&self) -> ExecutableResult {
+    fn load(&self) -> Box<Future<Item = Telemetry, Error = Error>> {
         Box::new(future::lazy(|| {
             let t = match do_load() {
                 Ok(t) => t,
                 Err(e) => return future::err(e),
             };
 
-            future::ok(Message::WithoutBody(
-                ResponseResult::Ok(
-                    Response::TelemetryLoad(t.into()))))
+            future::ok(t.into())
         }))
     }
 }

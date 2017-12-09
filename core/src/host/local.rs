@@ -15,7 +15,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
 use super::{Host, Providers};
-// use telemetry::{self, Telemetry};
+use telemetry::{self, Telemetry};
 use tokio_core::reactor::Handle;
 
 /// A `Host` type that talks directly to the local machine.
@@ -27,7 +27,7 @@ pub struct Local {
 
 struct Inner {
     providers: Providers,
-    // telemetry: Option<Telemetry>,
+    telemetry: Option<Telemetry>,
 }
 
 impl Local {
@@ -41,26 +41,24 @@ impl Local {
         let mut host = Local {
             inner: Arc::new(Inner {
                 providers: providers,
-                // telemetry: None,
+                telemetry: None,
             }),
             handle: handle.clone(),
         };
 
-        Box::new(future::ok(host))
-
-        // Box::new(telemetry::Telemetry::load(&host)
-        //     .chain_err(|| "Could not load telemetry for host")
-        //     .map(|t| {
-        //         Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
-        //         host
-        //     }))
+        Box::new(telemetry::Telemetry::load(&host)
+            .chain_err(|| "Could not load telemetry for host")
+            .map(|t| {
+                Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
+                host
+            }))
     }
 }
 
 impl Host for Local {
-    // fn telemetry(&self) -> &Telemetry {
-    //     self.inner.telemetry.as_ref().unwrap()
-    // }
+    fn telemetry(&self) -> &Telemetry {
+        self.inner.telemetry.as_ref().unwrap()
+    }
 
     fn handle(&self) -> &Handle {
         &self.handle

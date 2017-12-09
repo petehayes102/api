@@ -11,6 +11,7 @@ use host::Host;
 use host::local::Local;
 use message::{FromMessage, IntoMessage, InMessage};
 use serde_json as json;
+use telemetry;
 use tokio_core::reactor::Handle;
 use tokio_proto::streaming::Message;
 
@@ -30,12 +31,14 @@ pub trait Executable {
 
 #[derive(Serialize)]
 pub enum Request {
-    CommandExec(command::RequestExec),
+    CommandExec(command::CommandExec),
+    TelemetryLoad(telemetry::TelemetryLoad),
 }
 
 #[derive(Deserialize)]
 pub enum RequestValues {
     CommandExec(json::Value),
+    TelemetryLoad(json::Value),
 }
 
 impl Request {
@@ -50,6 +53,13 @@ impl Request {
                         Err(e) => future::err(e),
                     }))
             },
+            Request::TelemetryLoad(req) => {
+                Box::new(req.exec(&host)
+                    .and_then(move |res| match res.into_msg(host.handle()) {
+                        Ok(m) => future::ok(m),
+                        Err(e) => future::err(e),
+                    }))
+            }
         }
     }
 }
@@ -62,7 +72,9 @@ impl FromMessage for Request {
 
         let request = match values {
             RequestValues::CommandExec(v) =>
-                Request::CommandExec(command::RequestExec::from_msg(partstomsg!(v, body))?),
+                Request::CommandExec(command::CommandExec::from_msg(partstomsg!(v, body))?),
+            RequestValues::TelemetryLoad(v) =>
+                Request::TelemetryLoad(telemetry::TelemetryLoad::from_msg(partstomsg!(v, body))?),
         };
 
         Ok(request)

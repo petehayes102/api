@@ -14,13 +14,13 @@ use errors::*;
 use futures::Future;
 use message::IntoMessage;
 use request::Executable;
-// use telemetry::Telemetry;
+use telemetry::Telemetry;
 use tokio_core::reactor::Handle;
 
 /// Trait for local and remote host types.
 pub trait Host: Clone {
     /// Get `Telemetry` for this host.
-    // fn telemetry(&self) -> &Telemetry;
+    fn telemetry(&self) -> &Telemetry;
 
     /// Get `Handle` to Tokio reactor.
     fn handle(&self) -> &Handle;

@@ -8,8 +8,9 @@
 
 mod generic;
 
-use errors::*;
 pub use self::generic::Generic;
+
+use errors::*;
 use super::Child;
 use tokio_core::reactor::Handle;
 

@@ -14,12 +14,17 @@ mod providers;
 #[doc(hidden)] pub mod serializable;
 
 use errors::*;
-use futures::Future;
+use futures::{future, Future};
 use host::Host;
+use host::local::Local;
+use message::{FromMessage, IntoMessage, InMessage};
 use pnet::datalink::NetworkInterface;
-use remote::{Request, Response};
+use request::Executable;
 #[doc(hidden)] pub use self::providers::factory;
+use serde_json as json;
 use std::path::PathBuf;
+use tokio_core::reactor::Handle;
+use tokio_proto::streaming::Message;
 
 /// Top level structure that contains static information about a `Host`.
 #[derive(Debug)]
@@ -125,14 +130,30 @@ pub struct User {
     pub home_dir: PathBuf,
 }
 
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage)]
+pub struct TelemetryLoad;
+
 impl Telemetry {
     pub fn load<H: Host>(host: &H) -> Box<Future<Item = Telemetry, Error = Error>> {
-        Box::new(host.request(Request::TelemetryLoad)
-            .chain_err(|| ErrorKind::Request { endpoint: "Telemetry", func: "load" })
-            .map(|msg| match msg.into_inner() {
-                Response::TelemetryLoad(t) => Telemetry::from(t),
-                _ => unreachable!(),
-            }))
+        Box::new(host.request(TelemetryLoad)
+            .chain_err(|| ErrorKind::Request { endpoint: "Telemetry", func: "load" }))
+    }
+}
+
+impl FromMessage for Telemetry {
+    fn from_msg(msg: InMessage) -> Result<Self> {
+        let t: serializable::Telemetry = json::from_value(msg.into_inner())
+            .chain_err(|| "Could not deserialize Telemetry")?;
+        Ok(t.into())
+    }
+}
+
+impl IntoMessage for Telemetry {
+    fn into_msg(self, _: &Handle) -> Result<InMessage> {
+        let t: serializable::Telemetry = self.into();
+        let value = json::to_value(t).chain_err(|| "Could not convert type into Message")?;
+        Ok(Message::WithoutBody(value))
     }
 }
 
@@ -140,5 +161,17 @@ impl User {
     // Whether this user is root, which is calculated as `uid == 0`.
     pub fn is_root(&self) -> bool {
         self.uid == 0
+    }
+}
+
+impl Executable for TelemetryLoad {
+    type Response = Telemetry;
+    type Future = Box<Future<Item = Telemetry, Error = Error>>;
+
+    fn exec(self, _: &Local) -> Self::Future {
+        match factory() {
+            Ok(f) => f.load(),
+            Err(e) => Box::new(future::err(e)),
+        }
     }
 }

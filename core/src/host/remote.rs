@@ -19,7 +19,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
 use super::{Host, Providers};
-// use telemetry::{self, Telemetry};
+use telemetry::{self, Telemetry};
 use tokio_core::reactor::Handle;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Encoder, Decoder, Framed};
@@ -42,7 +42,7 @@ pub struct Plain {
 struct Inner {
     inner: ClientProxy<InMessage, InMessage, io::Error>,
     providers: Providers,
-    // telemetry: Option<Telemetry>,
+    telemetry: Option<Telemetry>,
 }
 
 #[doc(hidden)]
@@ -71,7 +71,7 @@ impl Plain {
 
                 let providers = match super::get_providers() {
                     Ok(p) => p,
-                    Err(e) => return future::err(e),
+                    Err(e) => return Box::new(future::err(e)) as Box<Future<Item = _, Error = _>>,
                 };
 
                 let mut host = Plain {
@@ -79,27 +79,25 @@ impl Plain {
                         Inner {
                             inner: client_service,
                             providers: providers,
-                            // telemetry: None,
+                            telemetry: None,
                         }),
                     handle: handle.clone(),
                 };
 
-                future::ok(host)
-
-                // telemetry::Telemetry::load(&host)
-                //     .chain_err(|| "Could not load telemetry for host")
-                //     .map(|t| {
-                //         Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
-                //         host
-                //     })
+                Box::new(telemetry::Telemetry::load(&host)
+                    .chain_err(|| "Could not load telemetry for host")
+                    .map(|t| {
+                        Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
+                        host
+                    }))
             }))
     }
 }
 
 impl Host for Plain {
-    // fn telemetry(&self) -> &Telemetry {
-    //     self.inner.telemetry.as_ref().unwrap()
-    // }
+    fn telemetry(&self) -> &Telemetry {
+        self.inner.telemetry.as_ref().unwrap()
+    }
 
     fn handle(&self) -> &Handle {
         &self.handle
