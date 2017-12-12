@@ -29,7 +29,7 @@ fn main() {
         // Ok, we're in! Now we can pass our `host` handle to other
         // endpoints, which informs them of the server we mean to
         // talk to. See basic.rs for more usage.
-        println!("Connected to {}", host.telemetry().hostname);
+        println!("Connected to {}", host.get_telemetry().hostname);
     });
 
     // This line is part of `tokio-core` and is used to execute the
