@@ -10,6 +10,7 @@ use futures::{future, Future};
 use host::Host;
 use host::local::Local;
 use message::{FromMessage, IntoMessage, InMessage};
+use package;
 use serde_json as json;
 use telemetry;
 use tokio_core::reactor::Handle;
@@ -19,6 +20,18 @@ macro_rules! partstomsg {
     ($v:expr, $b:expr) => (match $b {
         ::std::option::Option::Some(body) => ::tokio_proto::streaming::Message::WithBody($v, body),
         ::std::option::Option::None => ::tokio_proto::streaming::Message::WithoutBody($v),
+    });
+}
+
+macro_rules! reqexec {
+    ($self:ident, $host:ident, $($variant:ident),+) => (match $self {
+        $(Request::$variant(req) => {
+            Box::new(req.exec(&$host)
+                .and_then(move |res| match res.into_msg($host.handle()) {
+                    Ok(m) => future::ok(m),
+                    Err(e) => future::err(e),
+                }))
+        }),+
     });
 }
 
@@ -32,12 +45,18 @@ pub trait Executable {
 #[derive(Serialize)]
 pub enum Request {
     CommandExec(command::CommandExec),
+    PackageInstalled(package::PackageInstalled),
+    PackageInstall(package::PackageInstall),
+    PackageUninstall(package::PackageUninstall),
     TelemetryLoad(telemetry::TelemetryLoad),
 }
 
 #[derive(Deserialize)]
 pub enum RequestValues {
     CommandExec(json::Value),
+    PackageInstalled(json::Value),
+    PackageInstall(json::Value),
+    PackageUninstall(json::Value),
     TelemetryLoad(json::Value),
 }
 
@@ -45,22 +64,13 @@ impl Request {
     pub fn exec(self, host: &Local) -> Box<Future<Item = InMessage, Error = Error>> {
         let host = host.clone();
 
-        match self {
-            Request::CommandExec(req) => {
-                Box::new(req.exec(&host)
-                    .and_then(move |res| match res.into_msg(host.handle()) {
-                        Ok(m) => future::ok(m),
-                        Err(e) => future::err(e),
-                    }))
-            },
-            Request::TelemetryLoad(req) => {
-                Box::new(req.exec(&host)
-                    .and_then(move |res| match res.into_msg(host.handle()) {
-                        Ok(m) => future::ok(m),
-                        Err(e) => future::err(e),
-                    }))
-            }
-        }
+        reqexec!(self, host,
+            CommandExec,
+            PackageInstalled,
+            PackageInstall,
+            PackageUninstall,
+            TelemetryLoad
+        )
     }
 }
 
@@ -73,6 +83,12 @@ impl FromMessage for Request {
         let request = match values {
             RequestValues::CommandExec(v) =>
                 Request::CommandExec(command::CommandExec::from_msg(partstomsg!(v, body))?),
+            RequestValues::PackageInstalled(v) =>
+                Request::PackageInstalled(package::PackageInstalled::from_msg(partstomsg!(v, body))?),
+            RequestValues::PackageInstall(v) =>
+                Request::PackageInstall(package::PackageInstall::from_msg(partstomsg!(v, body))?),
+            RequestValues::PackageUninstall(v) =>
+                Request::PackageUninstall(package::PackageUninstall::from_msg(partstomsg!(v, body))?),
             RequestValues::TelemetryLoad(v) =>
                 Request::TelemetryLoad(telemetry::TelemetryLoad::from_msg(partstomsg!(v, body))?),
         };

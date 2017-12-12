@@ -4,18 +4,17 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
-use command::factory;
+use command::{self, Child};
 use error_chain::ChainedError;
 use errors::*;
 use futures::{future, Future};
+use futures::future::FutureResult;
+use host::Host;
+use host::local::Local;
 use regex::Regex;
-use remote::{ExecutableResult, Response, ResponseResult};
 use std::process;
 use super::PackageProvider;
-use telemetry::Os;
-use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
-use tokio_proto::streaming::Message;
 
 pub struct Dnf;
 
@@ -28,14 +27,13 @@ impl PackageProvider for Dnf {
             .success())
     }
 
-    fn installed(&self, handle: &Handle, name: &str, os: &Os) -> ExecutableResult {
-        let handle = handle.clone();
+    fn installed(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
         let name = name.to_owned();
-        let arch = os.arch.clone();
+        let arch = host.get_telemetry().os.arch.clone();
 
         Box::new(process::Command::new("dnf")
             .args(&["list", "installed"])
-            .output_async(&handle)
+            .output_async(host.handle())
             .chain_err(|| "Could not get installed packages")
             .and_then(move |output| {
                 if output.status.success() {
@@ -44,42 +42,27 @@ impl PackageProvider for Dnf {
                         Err(e) => return future::err(ErrorKind::Regex(e).into()),
                     };
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    future::ok(
-                        Message::WithoutBody(
-                            ResponseResult::Ok(
-                                Response::Bool(
-                                    re.is_match(&stdout)))))
+                    future::ok(re.is_match(&stdout))
                 } else {
-                    future::ok(
-                        Message::WithoutBody(
-                            ResponseResult::Err(
-                                format!("Error running `dnf list installed`: {}", String::from_utf8_lossy(&output.stderr))
-                            )
-                        )
-                    )
+                    future::err(format!("Error running `dnf list installed`: {}",
+                        String::from_utf8_lossy(&output.stderr)).into())
                 }
             }))
     }
 
-    fn install(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        let cmd = match factory() {
+    fn install(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
+        let cmd = match command::providers::factory() {
             Ok(c) => c,
-            Err(e) => return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain()))))),
+            Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
-        cmd.exec(handle, &["dnf", "-y", "install", name])
+        cmd.exec(host, &["dnf", "-y", "install", name])
     }
 
-    fn uninstall(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        let cmd = match factory() {
+    fn uninstall(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
+        let cmd = match command::providers::factory() {
             Ok(c) => c,
-            Err(e) => return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain()))))),
+            Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
-        cmd.exec(handle, &["dnf", "-y", "remove", name])
+        cmd.exec(host, &["dnf", "-y", "remove", name])
     }
 }

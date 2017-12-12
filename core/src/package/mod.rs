@@ -9,13 +9,13 @@
 //! A package is represented by the `Package` struct, which is idempotent. This
 //! means you can execute it repeatedly and it'll only run as needed.
 
-mod providers;
+pub mod providers;
 
-use command::CommandStatus;
+use command::Child;
 use errors::*;
 use futures::{future, Future};
+use futures::future::FutureResult;
 use host::Host;
-use remote::{Request, Response};
 #[doc(hidden)]
 pub use self::providers::{factory, PackageProvider, Apt, Dnf, Homebrew, Nix, Pkg, Yum};
 pub use self::providers::Provider;
@@ -69,7 +69,32 @@ pub use self::providers::Provider;
 ///```
 pub struct Package<H: Host> {
     host: H,
-    provider: Option<Provider>,
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "bool"]
+#[hostarg = "true"]
+pub struct PackageInstalled {
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "Child"]
+#[future = "FutureResult<Self::Response, Error>"]
+#[hostarg = "true"]
+pub struct PackageInstall {
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "Child"]
+#[future = "FutureResult<Self::Response, Error>"]
+#[hostarg = "true"]
+pub struct PackageUninstall {
     name: String,
 }
 
@@ -78,51 +103,14 @@ impl<H: Host + 'static> Package<H> {
     pub fn new(host: &H, name: &str) -> Package<H> {
         Package {
             host: host.clone(),
-            provider: None,
-            name: name.into(),
-        }
-    }
-
-    /// Create a new `Package` with the specified [`Provider`](enum.Provider.html).
-    ///
-    ///## Example
-    ///```
-    ///extern crate futures;
-    ///extern crate intecture_api;
-    ///extern crate tokio_core;
-    ///
-    ///use futures::Future;
-    ///use intecture_api::package::Provider;
-    ///use intecture_api::prelude::*;
-    ///use tokio_core::reactor::Core;
-    ///
-    ///# fn main() {
-    ///let mut core = Core::new().unwrap();
-    ///let handle = core.handle();
-    ///
-    ///let host = Local::new(&handle).wait().unwrap();
-    ///
-    ///Package::with_provider(&host, Provider::Yum, "nginx");
-    ///# }
-    pub fn with_provider(host: &H, provider: Provider, name: &str) -> Package<H> {
-        Package {
-            host: host.clone(),
-            provider: Some(provider),
             name: name.into(),
         }
     }
 
     /// Check if the package is installed.
     pub fn installed(&self) -> Box<Future<Item = bool, Error = Error>> {
-        let request = Request::PackageInstalled(self.provider, self.name.clone());
-        Box::new(self.host.request(request)
-            .chain_err(|| ErrorKind::Request { endpoint: "Package", func: "installed" })
-            .map(|msg| {
-                match msg.into_inner() {
-                    Response::Bool(b) => b,
-                    _ => unreachable!(),
-                }
-            }))
+        Box::new(self.host.request(PackageInstalled { name: self.name.clone() })
+            .chain_err(|| ErrorKind::Request { endpoint: "Package", func: "installed" }))
     }
 
     /// Install the package.
@@ -139,10 +127,9 @@ impl<H: Host + 'static> Package<H> {
     /// the hood this reuses the `Command` endpoint, so see
     /// [`Command` docs](../command/struct.Command.html) for detailed
     /// usage.
-    pub fn install(&self) -> Box<Future<Item = Option<CommandStatus>, Error = Error>>
+    pub fn install(&self) -> Box<Future<Item = Option<Child>, Error = Error>>
     {
         let host = self.host.clone();
-        let provider = self.provider;
         let name = self.name.clone();
 
         Box::new(self.installed()
@@ -150,11 +137,9 @@ impl<H: Host + 'static> Package<H> {
                 if installed {
                     Box::new(future::ok(None)) as Box<Future<Item = _, Error = Error>>
                 } else {
-                    Box::new(host.request(Request::PackageInstall(provider, name))
+                    Box::new(host.request(PackageInstall { name })
                         .chain_err(|| ErrorKind::Request { endpoint: "Package", func: "install" })
-                        .map(|msg| {
-                            Some(CommandStatus::new(msg))
-                        }))
+                        .map(|msg| Some(Child::from(msg))))
                 }
             }))
     }
@@ -173,20 +158,17 @@ impl<H: Host + 'static> Package<H> {
     /// the hood this reuses the `Command` endpoint, so see
     /// [`Command` docs](../command/struct.Command.html) for detailed
     /// usage.
-    pub fn uninstall(&self) -> Box<Future<Item = Option<CommandStatus>, Error = Error>>
+    pub fn uninstall(&self) -> Box<Future<Item = Option<Child>, Error = Error>>
     {
         let host = self.host.clone();
-        let provider = self.provider;
         let name = self.name.clone();
 
         Box::new(self.installed()
             .and_then(move |installed| {
                 if installed {
-                    Box::new(host.request(Request::PackageUninstall(provider, name))
+                    Box::new(host.request(PackageUninstall { name })
                         .chain_err(|| ErrorKind::Request { endpoint: "Package", func: "uninstall" })
-                        .map(|msg| {
-                            Some(CommandStatus::new(msg))
-                        }))
+                        .map(|msg| Some(Child::from(msg))))
                 } else {
                     Box::new(future::ok(None)) as Box<Future<Item = _, Error = Error>>
                 }

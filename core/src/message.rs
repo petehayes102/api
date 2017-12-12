@@ -24,3 +24,18 @@ pub trait FromMessage {
 pub trait IntoMessage {
     fn into_msg(self, &Handle) -> Result<InMessage>;
 }
+
+impl FromMessage for bool {
+    fn from_msg(msg: InMessage) -> Result<Self> {
+        match msg.into_inner() {
+            Value::Bool(b) => Ok(b),
+            _ => Err("Non-boolean message received".into())
+        }
+    }
+}
+
+impl IntoMessage for bool {
+    fn into_msg(self, _: &Handle) -> Result<InMessage> {
+        Ok(Message::WithoutBody(Value::Bool(self)))
+    }
+}

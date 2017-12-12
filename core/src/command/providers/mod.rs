@@ -11,13 +11,14 @@ mod generic;
 pub use self::generic::Generic;
 
 use errors::*;
+use futures::future::FutureResult;
+use host::local::Local;
 use super::Child;
-use tokio_core::reactor::Handle;
 
 #[doc(hidden)]
 pub trait CommandProvider {
     fn available() -> bool where Self: Sized;
-    fn exec(&self, &Handle, &[&str]) -> Result<Child>;
+    fn exec(&self, &Local, &[&str]) -> FutureResult<Child, Error>;
 }
 
 #[doc(hidden)]

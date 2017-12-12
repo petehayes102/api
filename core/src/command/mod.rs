@@ -12,13 +12,14 @@
 mod child;
 pub mod providers;
 
+pub use self::child::Child;
+
 use errors::*;
-use futures::{future, Future};
+use futures::Future;
 use futures::future::FutureResult;
 use host::Host;
 use host::local::Local;
 use request::Executable;
-use self::child::Child;
 
 #[cfg(not(windows))]
 const DEFAULT_SHELL: [&'static str; 2] = ["/bin/sh", "-c"];
@@ -199,24 +200,17 @@ impl<H: Host + 'static> Command<H> {
     /// This is the error you'll see if you prematurely drop the output `Stream`
     /// while trying to resolve the `Future<Item = ExitStatus, ...>`.
     pub fn exec(&self) -> Box<Future<Item = Child, Error = Error>> {
-        let request = CommandExec {
-            cmd: self.cmd.clone(),
-        };
-
-        Box::new(self.host.request(request)
+        Box::new(self.host.request(CommandExec { cmd: self.cmd.clone() })
             .chain_err(|| ErrorKind::Request { endpoint: "Command", func: "exec" }))
     }
 }
 
 impl Executable for CommandExec {
     type Response = Child;
-    type Future = FutureResult<Child, Error>;
+    type Future = FutureResult<Self::Response, Error>;
 
     fn exec(self, host: &Local) -> Self::Future {
         let args: Vec<&str> = self.cmd.iter().map(|a| &**a).collect();
-        match host.command().exec(host.handle(), &args) {
-            Ok(child) => future::ok(child),
-            Err(e) => future::err(e),
-        }
+        host.command().exec(host, &args)
     }
 }

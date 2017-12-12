@@ -5,9 +5,11 @@
 // modified, or distributed except according to those terms.
 
 use errors::*;
+use futures::future::{self, FutureResult};
+use host::Host;
+use host::local::Local;
 use std::process::{Command, Stdio};
 use super::{Child, CommandProvider};
-use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
 
 pub struct Generic;
@@ -17,20 +19,22 @@ impl CommandProvider for Generic {
         true
     }
 
-    fn exec(&self, handle: &Handle, cmd: &[&str]) -> Result<Child> {
+    fn exec(&self, host: &Local, cmd: &[&str]) -> FutureResult<Child, Error> {
         let result = cmd.split_first().ok_or("Invalid shell provided".into());
         let (cmd, cmd_args): (&&str, &[&str]) = match result {
             Ok((c, a)) => (c, a),
-            Err(e) => return Err(e),
+            Err(e) => return future::err(e),
         };
 
-        let child = Command::new(cmd)
+        match Command::new(cmd)
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn_async(handle)
-            .chain_err(|| "Command execution failed")?;
-
-        Ok(child.into())
+            .spawn_async(host.handle())
+            .chain_err(|| "Command execution failed")
+        {
+            Ok(child) => future::ok(child.into()),
+            Err(e) => future::err(e),
+        }
     }
 }

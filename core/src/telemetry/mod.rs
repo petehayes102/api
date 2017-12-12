@@ -10,16 +10,14 @@
 //! nice of it. Call [`Host.telemetry()`](../host/trait.Host.html#tymethod.telemetry)
 //! to access it.
 
-mod providers;
+pub mod providers;
 #[doc(hidden)] pub mod serializable;
 
 use errors::*;
-use futures::{future, Future};
+use futures::Future;
 use host::Host;
-use host::local::Local;
 use message::{FromMessage, IntoMessage, InMessage};
 use pnet::datalink::NetworkInterface;
-use request::Executable;
 #[doc(hidden)] pub use self::providers::factory;
 use serde_json as json;
 use std::path::PathBuf;
@@ -131,7 +129,8 @@ pub struct User {
 }
 
 #[doc(hidden)]
-#[derive(Serialize, Deserialize, FromMessage, IntoMessage)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "Telemetry"]
 pub struct TelemetryLoad;
 
 impl Telemetry {
@@ -161,17 +160,5 @@ impl User {
     // Whether this user is root, which is calculated as `uid == 0`.
     pub fn is_root(&self) -> bool {
         self.uid == 0
-    }
-}
-
-impl Executable for TelemetryLoad {
-    type Response = Telemetry;
-    type Future = Box<Future<Item = Telemetry, Error = Error>>;
-
-    fn exec(self, _: &Local) -> Self::Future {
-        match factory() {
-            Ok(f) => f.load(),
-            Err(e) => Box::new(future::err(e)),
-        }
     }
 }

@@ -4,17 +4,16 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
-use command::factory;
+use command::{self, Child};
 use error_chain::ChainedError;
 use errors::*;
 use futures::{future, Future};
-use remote::{ExecutableResult, Response, ResponseResult};
+use futures::future::FutureResult;
+use host::Host;
+use host::local::Local;
 use std::process;
 use super::PackageProvider;
-use telemetry::Os;
-use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
-use tokio_proto::streaming::Message;
 
 pub struct Nix;
 
@@ -27,53 +26,37 @@ impl PackageProvider for Nix {
             .success())
     }
 
-    fn installed(&self, handle: &Handle, name: &str, _: &Os) -> ExecutableResult {
-        let handle = handle.clone();
+    fn installed(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
         let name = name.to_owned();
 
         Box::new(process::Command::new("nix-env")
             .args(&["--install", "--dry-run", &name])
-            .output_async(&handle)
+            .output_async(host.handle())
             .chain_err(|| "Could not check if package is installed")
             .and_then(move |output| {
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    future::ok(
-                        Message::WithoutBody(
-                            ResponseResult::Ok(
-                                Response::Bool(
-                                    !stdout.contains("these paths will be fetched")))))
+                    future::ok(!stdout.contains("these paths will be fetched"))
                 } else {
-                    future::ok(
-                        Message::WithoutBody(
-                            ResponseResult::Err(
-                                format!("Error running `nix-env --install --dry-run {}`: {}", name, String::from_utf8_lossy(&output.stderr))
-                            )
-                        )
-                    )
+                    future::err(format!("Error running `nix-env --install --dry-run {}`: {}",
+                        name, String::from_utf8_lossy(&output.stderr)).into())
                 }
             }))
     }
 
-    fn install(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        let cmd = match factory() {
+    fn install(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
+        let cmd = match command::providers::factory() {
             Ok(c) => c,
-            Err(e) => return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain()))))),
+            Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
-        cmd.exec(handle, &["nix-env", "--install", name])
+        cmd.exec(host, &["nix-env", "--install", name])
     }
 
-    fn uninstall(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        let cmd = match factory() {
+    fn uninstall(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
+        let cmd = match command::providers::factory() {
             Ok(c) => c,
-            Err(e) => return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain()))))),
+            Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
-        cmd.exec(handle, &["nix-env", "--uninstall", name])
+        cmd.exec(host, &["nix-env", "--uninstall", name])
     }
 }

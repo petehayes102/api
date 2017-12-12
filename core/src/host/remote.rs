@@ -11,6 +11,7 @@ use command::providers::CommandProvider;
 use errors::*;
 use futures::{future, Future};
 use message::{InMessage, FromMessage, IntoMessage};
+use package::providers::PackageProvider;
 use request::Executable;
 use serde_json;
 use std::{io, result};
@@ -20,6 +21,7 @@ use std::time::Duration;
 use std::sync::Arc;
 use super::{Host, Providers};
 use telemetry::{self, Telemetry};
+use telemetry::providers::TelemetryProvider;
 use tokio_core::reactor::Handle;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Encoder, Decoder, Framed};
@@ -95,7 +97,7 @@ impl Plain {
 }
 
 impl Host for Plain {
-    fn telemetry(&self) -> &Telemetry {
+    fn get_telemetry(&self) -> &Telemetry {
         self.inner.telemetry.as_ref().unwrap()
     }
 
@@ -137,6 +139,29 @@ impl Host for Plain {
         }
 
         Err(ErrorKind::MutRef("Local").into())
+    }
+
+    fn package(&self) -> &Box<PackageProvider> {
+        &self.inner.providers.package
+    }
+
+    fn set_package<P: PackageProvider + 'static>(&mut self, provider: P) -> Result<()> {
+        // @todo Is this a good thing to do, or should we introduce a Mutex?
+        for _ in 0..5 {
+            match Arc::get_mut(&mut self.inner) {
+                Some(inner) => {
+                    inner.providers.package = Box::new(provider);
+                    return Ok(());
+                },
+                None => sleep(Duration::from_millis(1)),
+            }
+        }
+
+        Err(ErrorKind::MutRef("Local").into())
+    }
+
+    fn telemetry(&self) -> &Box<TelemetryProvider> {
+        &self.inner.providers.telemetry
     }
 }
 

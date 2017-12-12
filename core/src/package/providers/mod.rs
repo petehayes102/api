@@ -13,16 +13,17 @@ mod nix;
 mod pkg;
 mod yum;
 
+use command::Child;
 use errors::*;
-use remote::ExecutableResult;
+use futures::Future;
+use futures::future::FutureResult;
+use host::local::Local;
 pub use self::apt::Apt;
 pub use self::dnf::Dnf;
 pub use self::homebrew::Homebrew;
 pub use self::nix::Nix;
 pub use self::pkg::Pkg;
 pub use self::yum::Yum;
-use telemetry::Os;
-use tokio_core::reactor::Handle;
 
 /// Specific implementation of `Package`
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -37,9 +38,9 @@ pub enum Provider {
 
 pub trait PackageProvider {
     fn available() -> Result<bool> where Self: Sized;
-    fn installed(&self, &Handle, &str, &Os) -> ExecutableResult;
-    fn install(&self, &Handle, &str) -> ExecutableResult;
-    fn uninstall(&self, &Handle, &str) -> ExecutableResult;
+    fn installed(&self, &Local, &str) -> Box<Future<Item = bool, Error = Error>>;
+    fn install(&self, &Local, &str) -> FutureResult<Child, Error>;
+    fn uninstall(&self, &Local, &str) -> FutureResult<Child, Error>;
 }
 
 #[doc(hidden)]

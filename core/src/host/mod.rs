@@ -13,14 +13,15 @@ use command;
 use errors::*;
 use futures::Future;
 use message::IntoMessage;
+use package;
 use request::Executable;
-use telemetry::Telemetry;
+use telemetry;
 use tokio_core::reactor::Handle;
 
 /// Trait for local and remote host types.
 pub trait Host: Clone {
     /// Get `Telemetry` for this host.
-    fn telemetry(&self) -> &Telemetry;
+    fn get_telemetry(&self) -> &telemetry::Telemetry;
 
     /// Get `Handle` to Tokio reactor.
     fn handle(&self) -> &Handle;
@@ -34,14 +35,27 @@ pub trait Host: Clone {
 
     /// Override the default `Command` provider for this host.
     fn set_command<P: command::providers::CommandProvider + 'static>(&mut self, P) -> Result<()>;
+
+    /// Get a reference to the appropriate `Package` provider for this host.
+    fn package(&self) -> &Box<package::providers::PackageProvider>;
+
+    /// Override the default `Package` provider for this host.
+    fn set_package<P: package::providers::PackageProvider + 'static>(&mut self, P) -> Result<()>;
+
+    /// Get a reference to the appropriate `Telemetry` provider for this host.
+    fn telemetry(&self) -> &Box<telemetry::providers::TelemetryProvider>;
 }
 
 struct Providers {
     command: Box<command::providers::CommandProvider>,
+    package: Box<package::providers::PackageProvider>,
+    telemetry: Box<telemetry::providers::TelemetryProvider>,
 }
 
 fn get_providers() -> Result<Providers> {
     Ok(Providers {
         command: command::providers::factory()?,
+        package: package::providers::factory()?,
+        telemetry: telemetry::providers::factory()?,
     })
 }
