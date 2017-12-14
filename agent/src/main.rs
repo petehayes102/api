@@ -57,7 +57,15 @@ impl Service for Api {
         };
 
         Box::new(request.exec(&self.host)
-            .chain_err(|| "Failed to execute Request"))
+            .chain_err(|| "Failed to execute Request")
+            .then(|mut result| match result {
+                Ok(mut msg) => {
+                    let mut reply = msg.get_mut();
+                    reply = format!("{\"Ok\":\"{}\"}", reply);
+                    future::ok(msg)
+                },
+                Err(e) => future::ok(error_to_msg(e))
+            }))
     }
 }
 
