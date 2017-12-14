@@ -10,15 +10,17 @@
 //! nice of it. Call [`Host.telemetry()`](../host/trait.Host.html#tymethod.telemetry)
 //! to access it.
 
-pub mod providers;
+mod providers;
 #[doc(hidden)] pub mod serializable;
 
 use errors::*;
-use futures::Future;
+use futures::{future, Future};
 use host::Host;
+use host::local::Local;
 use message::{FromMessage, IntoMessage, InMessage};
 use pnet::datalink::NetworkInterface;
-#[doc(hidden)] pub use self::providers::factory;
+use request::Executable;
+use self::providers::factory;
 use serde_json as json;
 use std::path::PathBuf;
 use tokio_core::reactor::Handle;
@@ -129,8 +131,7 @@ pub struct User {
 }
 
 #[doc(hidden)]
-#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
-#[response = "Telemetry"]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage)]
 pub struct TelemetryLoad;
 
 impl Telemetry {
@@ -153,6 +154,18 @@ impl IntoMessage for Telemetry {
         let t: serializable::Telemetry = self.into();
         let value = json::to_value(t).chain_err(|| "Could not convert type into Message")?;
         Ok(Message::WithoutBody(value))
+    }
+}
+
+impl Executable for TelemetryLoad {
+    type Response = Telemetry;
+    type Future = Box<Future<Item = Self::Response, Error = Error>>;
+
+    fn exec(self, _: &Local) -> Self::Future {
+        match factory() {
+            Ok(p) => p.load(),
+            Err(e) => Box::new(future::err(e)) as Box<Future<Item = _, Error = _>>,
+        }
     }
 }
 

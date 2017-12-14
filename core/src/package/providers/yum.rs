@@ -30,7 +30,7 @@ impl PackageProvider for Yum {
 
     fn installed(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
         let name = name.to_owned();
-        let arch = host.get_telemetry().os.arch.clone();
+        let arch = host.telemetry().os.arch.clone();
 
         Box::new(process::Command::new("yum")
             .args(&["list", "installed"])
@@ -52,7 +52,7 @@ impl PackageProvider for Yum {
     }
 
     fn install(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
@@ -60,7 +60,7 @@ impl PackageProvider for Yum {
     }
 
     fn uninstall(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };

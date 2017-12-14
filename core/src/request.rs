@@ -12,6 +12,7 @@ use host::local::Local;
 use message::{FromMessage, IntoMessage, InMessage};
 use package;
 use serde_json as json;
+use service;
 use telemetry;
 use tokio_core::reactor::Handle;
 use tokio_proto::streaming::Message;
@@ -48,6 +49,11 @@ pub enum Request {
     PackageInstalled(package::PackageInstalled),
     PackageInstall(package::PackageInstall),
     PackageUninstall(package::PackageUninstall),
+    ServiceRunning(service::ServiceRunning),
+    ServiceAction(service::ServiceAction),
+    ServiceEnabled(service::ServiceEnabled),
+    ServiceEnable(service::ServiceEnable),
+    ServiceDisable(service::ServiceDisable),
     TelemetryLoad(telemetry::TelemetryLoad),
 }
 
@@ -57,6 +63,11 @@ pub enum RequestValues {
     PackageInstalled(json::Value),
     PackageInstall(json::Value),
     PackageUninstall(json::Value),
+    ServiceRunning(json::Value),
+    ServiceAction(json::Value),
+    ServiceEnabled(json::Value),
+    ServiceEnable(json::Value),
+    ServiceDisable(json::Value),
     TelemetryLoad(json::Value),
 }
 
@@ -69,6 +80,11 @@ impl Request {
             PackageInstalled,
             PackageInstall,
             PackageUninstall,
+            ServiceRunning,
+            ServiceAction,
+            ServiceEnabled,
+            ServiceEnable,
+            ServiceDisable,
             TelemetryLoad
         )
     }
@@ -89,6 +105,16 @@ impl FromMessage for Request {
                 Request::PackageInstall(package::PackageInstall::from_msg(partstomsg!(v, body))?),
             RequestValues::PackageUninstall(v) =>
                 Request::PackageUninstall(package::PackageUninstall::from_msg(partstomsg!(v, body))?),
+            RequestValues::ServiceRunning(v) =>
+                Request::ServiceRunning(service::ServiceRunning::from_msg(partstomsg!(v, body))?),
+            RequestValues::ServiceAction(v) =>
+                Request::ServiceAction(service::ServiceAction::from_msg(partstomsg!(v, body))?),
+            RequestValues::ServiceEnabled(v) =>
+                Request::ServiceEnabled(service::ServiceEnabled::from_msg(partstomsg!(v, body))?),
+            RequestValues::ServiceEnable(v) =>
+                Request::ServiceEnable(service::ServiceEnable::from_msg(partstomsg!(v, body))?),
+            RequestValues::ServiceDisable(v) =>
+                Request::ServiceDisable(service::ServiceDisable::from_msg(partstomsg!(v, body))?),
             RequestValues::TelemetryLoad(v) =>
                 Request::TelemetryLoad(telemetry::TelemetryLoad::from_msg(partstomsg!(v, body))?),
         };

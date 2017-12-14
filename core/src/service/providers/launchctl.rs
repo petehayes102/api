@@ -4,19 +4,19 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
-use command::factory;
+use command::{Child, factory};
 use error_chain::ChainedError;
 use errors::*;
 use futures::{future, Future};
+use futures::future::FutureResult;
+use host::Host;
+use host::local::Local;
 use regex::Regex;
-use remote::{ExecutableResult, Response, ResponseResult};
 use std::{fs, process};
 use std::path::{Path, PathBuf};
 use super::ServiceProvider;
 use telemetry::{OsFamily, Telemetry};
-use tokio_core::reactor::Handle;
 use tokio_process::CommandExt;
-use tokio_proto::streaming::Message;
 
 pub struct Launchctl {
     domain_target: String,
@@ -79,22 +79,19 @@ impl ServiceProvider for Launchctl {
         Ok(telemetry.os.family == OsFamily::Darwin && telemetry.os.version_min >= 11)
     }
 
-    fn running(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        let status = match process::Command::new("/bin/launchctl")
+    fn running(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
+        Box::new(match process::Command::new("/bin/launchctl")
             .args(&["blame", &format!("{}/{}", self.domain_target, name)])
-            .status_async2(handle)
+            .status_async2(host.handle())
             .chain_err(|| "Error checking if service is running")
         {
-            Ok(s) => s,
+            Ok(s) => s.map(|s| s.success())
+                .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl blame"))),
             Err(e) => return Box::new(future::err(e)),
-        };
-        Box::new(status.map(|s| Message::WithoutBody(
-                ResponseResult::Ok(
-                    Response::Bool(s.success()))))
-            .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl blame"))))
+        })
     }
 
-    fn action(&self, handle: &Handle, name: &str, action: &str) -> ExecutableResult {
+    fn action(&self, host: &Local, name: &str, action: &str) -> FutureResult<Child, Error> {
         let action = match action {
             "start" => "bootstrap",
             "stop" => "bootout",
@@ -104,28 +101,25 @@ impl ServiceProvider for Launchctl {
 
         let cmd = match factory() {
             Ok(c) => c,
-            Err(e) => return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain()))))),
+            Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
 
         // Run through shell as `action` may contain multiple args with spaces.
         // If we passed `action` as a single argument, it would automatically
         // be quoted and multiple args would appear as a single quoted arg.
-        cmd.exec(handle, &[
+        cmd.exec(host, &[
             "/bin/sh",
             "-c",
             &format!("/bin/launchctl {} {} {}/{}.plist", action, self.domain_target, self.service_path.display(), name)
         ])
     }
 
-    fn enabled(&self, handle: &Handle, name: &str) -> ExecutableResult {
+    fn enabled(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
         let name = name.to_owned();
 
         Box::new(process::Command::new("/bin/launchctl")
             .args(&["print-disabled", &self.domain_target])
-            .output_async(handle)
+            .output_async(host.handle())
             .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl print-disabled <domain_target>")))
             .and_then(move |out| {
                 if out.status.success() {
@@ -136,40 +130,38 @@ impl ServiceProvider for Launchctl {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     let is_match = !re.is_match(&stdout);
 
-                    future::ok(Message::WithoutBody(ResponseResult::Ok(Response::Bool(is_match))))
+                    future::ok(is_match)
                 } else {
                     future::err(ErrorKind::SystemCommand("/bin/launchctl").into())
                 }
             }))
     }
 
-    fn enable(&self, handle: &Handle, name: &str) -> ExecutableResult {
+    fn enable(&self, host: &Local, name: &str) -> Box<Future<Item = (), Error = Error>> {
         Box::new(process::Command::new("/bin/launchctl")
             .args(&["enable", &format!("{}/{}", self.domain_target, name)])
-            .output_async(handle)
-            .map(|out| {
+            .output_async(host.handle())
+            .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl enable <service>")))
+            .and_then(|out| {
                 if out.status.success() {
-                    Message::WithoutBody(ResponseResult::Ok(Response::Null))
+                    future::ok(())
                 } else {
-                    Message::WithoutBody(ResponseResult::Err(
-                        format!("Could not enable service: {}", String::from_utf8_lossy(&out.stderr))))
+                    future::err(format!("Could not enable service: {}", String::from_utf8_lossy(&out.stderr)).into())
                 }
-            })
-            .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl enable <service>"))))
+            }))
     }
 
-    fn disable(&self, handle: &Handle, name: &str) -> ExecutableResult {
+    fn disable(&self, host: &Local, name: &str) -> Box<Future<Item = (), Error = Error>> {
         Box::new(process::Command::new("/bin/launchctl")
             .args(&["disable", &format!("{}/{}", self.domain_target, name)])
-            .output_async(handle)
-            .map(|out| {
+            .output_async(host.handle())
+            .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl disable <service>")))
+            .and_then(|out| {
                 if out.status.success() {
-                    Message::WithoutBody(ResponseResult::Ok(Response::Null))
+                    future::ok(())
                 } else {
-                    Message::WithoutBody(ResponseResult::Err(
-                        format!("Could not disable service: {}", String::from_utf8_lossy(&out.stderr))))
+                    future::err(format!("Could not disable service: {}", String::from_utf8_lossy(&out.stderr)).into())
                 }
-            })
-            .map_err(|e| Error::with_chain(e, ErrorKind::SystemCommand("launchctl disable <service>"))))
+            }))
     }
 }

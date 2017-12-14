@@ -13,8 +13,11 @@ mod rc;
 mod redhat;
 mod systemd;
 
+use command::Child;
 use errors::*;
-use remote::ExecutableResult;
+use futures::Future;
+use futures::future::FutureResult;
+use host::local::Local;
 pub use self::debian::Debian;
 pub use self::homebrew::Homebrew;
 pub use self::launchctl::Launchctl;
@@ -22,7 +25,6 @@ pub use self::rc::Rc;
 pub use self::redhat::Redhat;
 pub use self::systemd::Systemd;
 use telemetry::Telemetry;
-use tokio_core::reactor::Handle;
 
 /// Specific implementation of `Service`
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -37,11 +39,11 @@ pub enum Provider {
 
 pub trait ServiceProvider {
     fn available(&Telemetry) -> Result<bool> where Self: Sized;
-    fn running(&self, &Handle, &str) -> ExecutableResult;
-    fn action(&self, &Handle, &str, &str) -> ExecutableResult;
-    fn enabled(&self, &Handle, &str) -> ExecutableResult;
-    fn enable(&self, &Handle, &str) -> ExecutableResult;
-    fn disable(&self, &Handle, &str) -> ExecutableResult;
+    fn running(&self, &Local, &str) -> Box<Future<Item = bool, Error = Error>>;
+    fn action(&self, &Local, &str, &str) -> FutureResult<Child, Error>;
+    fn enabled(&self, &Local, &str) -> Box<Future<Item = bool, Error = Error>>;
+    fn enable(&self, &Local, &str) -> Box<Future<Item = (), Error = Error>>;
+    fn disable(&self, &Local, &str) -> Box<Future<Item = (), Error = Error>>;
 }
 
 #[doc(hidden)]

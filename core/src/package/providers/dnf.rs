@@ -29,7 +29,7 @@ impl PackageProvider for Dnf {
 
     fn installed(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
         let name = name.to_owned();
-        let arch = host.get_telemetry().os.arch.clone();
+        let arch = host.telemetry().os.arch.clone();
 
         Box::new(process::Command::new("dnf")
             .args(&["list", "installed"])
@@ -51,7 +51,7 @@ impl PackageProvider for Dnf {
     }
 
     fn install(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
@@ -59,7 +59,7 @@ impl PackageProvider for Dnf {
     }
 
     fn uninstall(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };

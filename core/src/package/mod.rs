@@ -9,7 +9,7 @@
 //! A package is represented by the `Package` struct, which is idempotent. This
 //! means you can execute it repeatedly and it'll only run as needed.
 
-pub mod providers;
+mod providers;
 
 use command::Child;
 use errors::*;
@@ -18,7 +18,6 @@ use futures::future::FutureResult;
 use host::Host;
 #[doc(hidden)]
 pub use self::providers::{factory, PackageProvider, Apt, Dnf, Homebrew, Nix, Pkg, Yum};
-pub use self::providers::Provider;
 
 /// Represents a system package to be managed for a host.
 ///

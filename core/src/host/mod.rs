@@ -15,13 +15,14 @@ use futures::Future;
 use message::IntoMessage;
 use package;
 use request::Executable;
+use service;
 use telemetry;
 use tokio_core::reactor::Handle;
 
 /// Trait for local and remote host types.
 pub trait Host: Clone {
     /// Get `Telemetry` for this host.
-    fn get_telemetry(&self) -> &telemetry::Telemetry;
+    fn telemetry(&self) -> &telemetry::Telemetry;
 
     /// Get `Handle` to Tokio reactor.
     fn handle(&self) -> &Handle;
@@ -31,31 +32,34 @@ pub trait Host: Clone {
         where R: Executable + IntoMessage + 'static;
 
     /// Get a reference to the appropriate `Command` provider for this host.
-    fn command(&self) -> &Box<command::providers::CommandProvider>;
+    fn command(&self) -> &Box<command::CommandProvider>;
 
     /// Override the default `Command` provider for this host.
-    fn set_command<P: command::providers::CommandProvider + 'static>(&mut self, P) -> Result<()>;
+    fn set_command<P: command::CommandProvider + 'static>(&mut self, P) -> Result<()>;
 
     /// Get a reference to the appropriate `Package` provider for this host.
-    fn package(&self) -> &Box<package::providers::PackageProvider>;
+    fn package(&self) -> &Box<package::PackageProvider>;
 
     /// Override the default `Package` provider for this host.
-    fn set_package<P: package::providers::PackageProvider + 'static>(&mut self, P) -> Result<()>;
+    fn set_package<P: package::PackageProvider + 'static>(&mut self, P) -> Result<()>;
 
-    /// Get a reference to the appropriate `Telemetry` provider for this host.
-    fn telemetry(&self) -> &Box<telemetry::providers::TelemetryProvider>;
+    /// Get a reference to the appropriate `Service` provider for this host.
+    fn service(&self) -> &Box<service::ServiceProvider>;
+
+    /// Override the default `Service` provider for this host.
+    fn set_service<P: service::ServiceProvider + 'static>(&mut self, P) -> Result<()>;
 }
 
 struct Providers {
-    command: Box<command::providers::CommandProvider>,
-    package: Box<package::providers::PackageProvider>,
-    telemetry: Box<telemetry::providers::TelemetryProvider>,
+    command: Box<command::CommandProvider>,
+    package: Box<package::PackageProvider>,
+    service: Box<service::ServiceProvider>,
 }
 
-fn get_providers() -> Result<Providers> {
+fn get_providers(telemetry: &telemetry::Telemetry) -> Result<Providers> {
     Ok(Providers {
-        command: command::providers::factory()?,
-        package: package::providers::factory()?,
-        telemetry: telemetry::providers::factory()?,
+        command: command::factory()?,
+        package: package::factory()?,
+        service: service::factory(telemetry)?,
     })
 }

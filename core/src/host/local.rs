@@ -6,18 +6,18 @@
 
 //! A connection to the local machine.
 
-use command::providers::CommandProvider;
+use command::CommandProvider;
 use errors::*;
 use futures::{future, Future};
 use message::IntoMessage;
-use package::providers::PackageProvider;
+use package::PackageProvider;
 use request::Executable;
+use service::ServiceProvider;
 use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
 use super::{Host, Providers};
 use telemetry::{self, Telemetry};
-use telemetry::providers::TelemetryProvider;
 use tokio_core::reactor::Handle;
 
 /// A `Host` type that talks directly to the local machine.
@@ -28,21 +28,16 @@ pub struct Local {
 }
 
 struct Inner {
-    providers: Providers,
+    providers: Option<Providers>,
     telemetry: Option<Telemetry>,
 }
 
 impl Local {
     /// Create a new `Host` targeting the local machine.
     pub fn new(handle: &Handle) -> Box<Future<Item = Self, Error = Error>> {
-        let providers = match super::get_providers() {
-            Ok(p) => p,
-            Err(e) => return Box::new(future::err(e)),
-        };
-
         let mut host = Local {
             inner: Arc::new(Inner {
-                providers: providers,
+                providers: None,
                 telemetry: None,
             }),
             handle: handle.clone(),
@@ -50,15 +45,22 @@ impl Local {
 
         Box::new(telemetry::Telemetry::load(&host)
             .chain_err(|| "Could not load telemetry for host")
-            .map(|t| {
-                Arc::get_mut(&mut host.inner).unwrap().telemetry = Some(t);
-                host
+            .and_then(|t| {
+                {
+                    let inner = Arc::get_mut(&mut host.inner).unwrap();
+                    inner.providers = match super::get_providers(&t) {
+                        Ok(p) => Some(p),
+                        Err(e) => return future::err(e),
+                    };
+                    inner.telemetry = Some(t);
+                }
+                future::ok(host)
             }))
     }
 }
 
 impl Host for Local {
-    fn get_telemetry(&self) -> &Telemetry {
+    fn telemetry(&self) -> &Telemetry {
         self.inner.telemetry.as_ref().unwrap()
     }
 
@@ -74,7 +76,7 @@ impl Host for Local {
     }
 
     fn command(&self) -> &Box<CommandProvider> {
-        &self.inner.providers.command
+        &self.inner.providers.as_ref().unwrap().command
     }
 
     fn set_command<P: CommandProvider + 'static>(&mut self, provider: P) -> Result<()> {
@@ -82,7 +84,7 @@ impl Host for Local {
         for _ in 0..5 {
             match Arc::get_mut(&mut self.inner) {
                 Some(inner) => {
-                    inner.providers.command = Box::new(provider);
+                    inner.providers.as_mut().unwrap().command = Box::new(provider);
                     return Ok(());
                 },
                 None => sleep(Duration::from_millis(1)),
@@ -93,7 +95,7 @@ impl Host for Local {
     }
 
     fn package(&self) -> &Box<PackageProvider> {
-        &self.inner.providers.package
+        &self.inner.providers.as_ref().unwrap().package
     }
 
     fn set_package<P: PackageProvider + 'static>(&mut self, provider: P) -> Result<()> {
@@ -101,7 +103,7 @@ impl Host for Local {
         for _ in 0..5 {
             match Arc::get_mut(&mut self.inner) {
                 Some(inner) => {
-                    inner.providers.package = Box::new(provider);
+                    inner.providers.as_mut().unwrap().package = Box::new(provider);
                     return Ok(());
                 },
                 None => sleep(Duration::from_millis(1)),
@@ -111,7 +113,22 @@ impl Host for Local {
         Err(ErrorKind::MutRef("Local").into())
     }
 
-    fn telemetry(&self) -> &Box<TelemetryProvider> {
-        &self.inner.providers.telemetry
+    fn service(&self) -> &Box<ServiceProvider> {
+        &self.inner.providers.as_ref().unwrap().service
+    }
+
+    fn set_service<P: ServiceProvider + 'static>(&mut self, provider: P) -> Result<()> {
+        // @todo Is this a good thing to do, or should we introduce a Mutex?
+        for _ in 0..5 {
+            match Arc::get_mut(&mut self.inner) {
+                Some(inner) => {
+                    inner.providers.as_mut().unwrap().service = Box::new(provider);
+                    return Ok(());
+                },
+                None => sleep(Duration::from_millis(1)),
+            }
+        }
+
+        Err(ErrorKind::MutRef("Local").into())
     }
 }

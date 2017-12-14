@@ -39,7 +39,7 @@ impl PackageProvider for Pkg {
     }
 
     fn install(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };
@@ -47,7 +47,7 @@ impl PackageProvider for Pkg {
     }
 
     fn uninstall(&self, host: &Local, name: &str) -> FutureResult<Child, Error> {
-        let cmd = match command::providers::factory() {
+        let cmd = match command::factory() {
             Ok(c) => c,
             Err(e) => return future::err(format!("{}", e.display_chain()).into()),
         };

@@ -4,15 +4,15 @@
 // https://www.tldrlegal.com/l/mpl-2.0>. This file may not be copied,
 // modified, or distributed except according to those terms.
 
+use command::Child;
 use error_chain::ChainedError;
 use errors::*;
-use futures::future;
-use remote::{ExecutableResult, ResponseResult};
+use futures::{future, Future};
+use futures::future::FutureResult;
+use host::local::Local;
 use std::process;
 use super::{Launchctl, ServiceProvider};
 use telemetry::Telemetry;
-use tokio_core::reactor::Handle;
-use tokio_proto::streaming::Message;
 
 pub struct Homebrew {
     inner: Launchctl,
@@ -38,11 +38,11 @@ impl ServiceProvider for Homebrew {
         Ok(brew && Launchctl::available(telemetry)?)
     }
 
-    fn running(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        self.inner.running(handle, name)
+    fn running(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
+        self.inner.running(host, name)
     }
 
-    fn action(&self, handle: &Handle, name: &str, action: &str) -> ExecutableResult {
+    fn action(&self, host: &Local, name: &str, action: &str) -> FutureResult<Child, Error> {
         // @todo This isn't the most reliable method. Ideally a user would
         // invoke these commands themselves.
         let result = if action == "stop" {
@@ -52,25 +52,21 @@ impl ServiceProvider for Homebrew {
             self.inner.install_plist(path)
         };
 
-        if let Err(e) = result {
-            return Box::new(future::ok(
-                Message::WithoutBody(
-                    ResponseResult::Err(
-                        format!("{}", e.display_chain())))))
+        match result {
+            Ok(_) => self.inner.action(host, name, action),
+            Err(e) => future::err(format!("{}", e.display_chain()).into())
         }
-
-        self.inner.action(handle, name, action)
     }
 
-    fn enabled(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        self.inner.enabled(handle, name)
+    fn enabled(&self, host: &Local, name: &str) -> Box<Future<Item = bool, Error = Error>> {
+        self.inner.enabled(host, name)
     }
 
-    fn enable(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        self.inner.enable(handle, name)
+    fn enable(&self, host: &Local, name: &str) -> Box<Future<Item = (), Error = Error>> {
+        self.inner.enable(host, name)
     }
 
-    fn disable(&self, handle: &Handle, name: &str) -> ExecutableResult {
-        self.inner.disable(handle, name)
+    fn disable(&self, host: &Local, name: &str) -> Box<Future<Item = (), Error = Error>> {
+        self.inner.disable(host, name)
     }
 }

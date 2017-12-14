@@ -11,11 +11,11 @@
 
 mod providers;
 
-use command::CommandStatus;
+use command::Child;
 use errors::*;
 use futures::{future, Future};
+use futures::future::FutureResult;
 use host::Host;
-use remote::{Request, Response};
 #[doc(hidden)]
 pub use self::providers::{
     factory, ServiceProvider, Debian, Homebrew, Launchctl,
@@ -62,7 +62,48 @@ pub use self::providers::Provider;
 ///```
 pub struct Service<H: Host> {
     host: H,
-    provider: Option<Provider>,
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "bool"]
+#[hostarg = "true"]
+pub struct ServiceRunning {
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "Child"]
+#[future = "FutureResult<Self::Response, Error>"]
+#[hostarg = "true"]
+pub struct ServiceAction {
+    name: String,
+    action: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "bool"]
+#[hostarg = "true"]
+pub struct ServiceEnabled {
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "()"]
+#[hostarg = "true"]
+pub struct ServiceEnable {
+    name: String,
+}
+
+#[doc(hidden)]
+#[derive(Serialize, Deserialize, FromMessage, IntoMessage, Executable)]
+#[response = "()"]
+#[hostarg = "true"]
+pub struct ServiceDisable {
     name: String,
 }
 
@@ -71,51 +112,14 @@ impl<H: Host + 'static> Service<H> {
     pub fn new(host: &H, name: &str) -> Service<H> {
         Service {
             host: host.clone(),
-            provider: None,
-            name: name.into(),
-        }
-    }
-
-    /// Create a new `Service` with the specified [`Provider`](enum.Provider.html).
-    ///
-    ///## Example
-    ///```
-    ///extern crate futures;
-    ///extern crate intecture_api;
-    ///extern crate tokio_core;
-    ///
-    ///use futures::Future;
-    ///use intecture_api::service::Provider;
-    ///use intecture_api::prelude::*;
-    ///use tokio_core::reactor::Core;
-    ///
-    ///# fn main() {
-    ///let mut core = Core::new().unwrap();
-    ///let handle = core.handle();
-    ///
-    ///let host = Local::new(&handle).wait().unwrap();
-    ///
-    ///Service::with_provider(&host, Provider::Systemd, "nginx");
-    ///# }
-    pub fn with_provider(host: &H, provider: Provider, name: &str) -> Service<H> {
-        Service {
-            host: host.clone(),
-            provider: Some(provider),
             name: name.into(),
         }
     }
 
     /// Check if the service is currently running.
     pub fn running(&self) -> Box<Future<Item = bool, Error = Error>> {
-        let request = Request::ServiceRunning(self.provider, self.name.clone());
-        Box::new(self.host.request(request)
-            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "running" })
-            .map(|msg| {
-                match msg.into_inner() {
-                    Response::Bool(b) => b,
-                    _ => unreachable!(),
-                }
-            }))
+        Box::new(self.host.request(ServiceRunning { name: self.name.clone() })
+            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "running" }))
     }
 
     /// Perform an action for the service, e.g. "start".
@@ -141,12 +145,10 @@ impl<H: Host + 'static> Service<H> {
     /// this reuses the `Command` endpoint, so see
     /// [`Command` docs](../command/struct.Command.html) for detailed
     /// usage.
-    pub fn action(&self, action: &str) -> Box<Future<Item = Option<CommandStatus>, Error = Error>>
-    {
+    pub fn action(&self, action: &str) -> Box<Future<Item = Option<Child>, Error = Error>> {
         if action == "start" || action == "stop" {
             let host = self.host.clone();
             let name = self.name.clone();
-            let provider = self.provider;
             let action = action.to_owned();
 
             Box::new(self.running()
@@ -154,34 +156,25 @@ impl<H: Host + 'static> Service<H> {
                     if (running && action == "start") || (!running && action == "stop") {
                         Box::new(future::ok(None)) as Box<Future<Item = _, Error = Error>>
                     } else {
-                        Self::do_action(&host, provider, &name, &action)
+                        Box::new(Self::do_action(&host, &name, &action)
+                            .map(|c| Some(c)))
                     }
                 }))
         } else {
-            Self::do_action(&self.host, self.provider, &self.name, action)
+            Box::new(Self::do_action(&self.host, &self.name, action)
+                .map(|c| Some(c)))
         }
     }
 
-    fn do_action(host: &H, provider: Option<Provider>, name: &str, action: &str)
-        -> Box<Future<Item = Option<CommandStatus>, Error = Error>>
-    {
-        let request = Request::ServiceAction(provider, name.into(), action.into());
-        Box::new(host.request(request)
-            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "action" })
-            .map(|msg| Some(CommandStatus::new(msg))))
+    fn do_action(host: &H, name: &str, action: &str) -> Box<Future<Item = Child, Error = Error>> {
+        Box::new(host.request(ServiceAction { name: name.into(), action: action.into() })
+            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "action" }))
     }
 
     /// Check if the service will start at boot.
     pub fn enabled(&self) -> Box<Future<Item = bool, Error = Error>> {
-        let request = Request::ServiceEnabled(self.provider, self.name.clone());
-        Box::new(self.host.request(request)
-            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "enabled" })
-            .map(|msg| {
-                match msg.into_inner() {
-                    Response::Bool(b) => b,
-                    _ => unreachable!(),
-                }
-            }))
+        Box::new(self.host.request(ServiceEnabled { name: self.name.clone() })
+            .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "enabled" }))
     }
 
     /// Instruct the service to start at boot.
@@ -201,7 +194,6 @@ impl<H: Host + 'static> Service<H> {
     pub fn enable(&self) -> Box<Future<Item = Option<()>, Error = Error>>
     {
         let host = self.host.clone();
-        let provider = self.provider;
         let name = self.name.clone();
 
         Box::new(self.enabled()
@@ -209,13 +201,9 @@ impl<H: Host + 'static> Service<H> {
                 if enabled {
                     Box::new(future::ok(None)) as Box<Future<Item = _, Error = Error>>
                 } else {
-                    let request = Request::ServiceEnable(provider, name);
-                    Box::new(host.request(request)
+                    Box::new(host.request(ServiceEnable { name: name.into() })
                         .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "enable" })
-                        .map(|msg| match msg.into_inner() {
-                            Response::Null => Some(()),
-                            _ => unreachable!(),
-                        }))
+                        .map(|_| Some(())))
                 }
             }))
     }
@@ -237,19 +225,14 @@ impl<H: Host + 'static> Service<H> {
     pub fn disable(&self) -> Box<Future<Item = Option<()>, Error = Error>>
     {
         let host = self.host.clone();
-        let provider = self.provider;
         let name = self.name.clone();
 
         Box::new(self.enabled()
             .and_then(move |enabled| {
                 if enabled {
-                    let request = Request::ServiceDisable(provider, name);
-                    Box::new(host.request(request)
+                    Box::new(host.request(ServiceDisable { name: name.into() })
                         .chain_err(|| ErrorKind::Request { endpoint: "Service", func: "disable" })
-                        .map(|msg| match msg.into_inner() {
-                            Response::Null => Some(()),
-                            _ => unreachable!(),
-                        }))
+                        .map(|_| Some(())))
                 } else {
                     Box::new(future::ok(None)) as Box<Future<Item = _, Error = Error>>
                 }

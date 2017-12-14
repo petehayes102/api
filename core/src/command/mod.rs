@@ -10,9 +10,10 @@
 //! idempotent.
 
 mod child;
-pub mod providers;
+mod providers;
 
 pub use self::child::Child;
+pub use self::providers::{CommandProvider, factory, Generic};
 
 use errors::*;
 use futures::Future;

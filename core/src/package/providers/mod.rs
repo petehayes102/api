@@ -25,17 +25,6 @@ pub use self::nix::Nix;
 pub use self::pkg::Pkg;
 pub use self::yum::Yum;
 
-/// Specific implementation of `Package`
-#[derive(Clone, Copy, Serialize, Deserialize)]
-pub enum Provider {
-    Apt,
-    Dnf,
-    Homebrew,
-    Nix,
-    Pkg,
-    Yum,
-}
-
 pub trait PackageProvider {
     fn available() -> Result<bool> where Self: Sized;
     fn installed(&self, &Local, &str) -> Box<Future<Item = bool, Error = Error>>;

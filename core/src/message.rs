@@ -39,3 +39,18 @@ impl IntoMessage for bool {
         Ok(Message::WithoutBody(Value::Bool(self)))
     }
 }
+
+impl FromMessage for () {
+    fn from_msg(msg: InMessage) -> Result<Self> {
+        match msg.into_inner() {
+            Value::Null => Ok(()),
+            _ => Err("Non-null message received".into())
+        }
+    }
+}
+
+impl IntoMessage for () {
+    fn into_msg(self, _: &Handle) -> Result<InMessage> {
+        Ok(Message::WithoutBody(Value::Null))
+    }
+}
